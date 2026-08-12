@@ -1,0 +1,377 @@
+<section class="page" id="p31">
+  <header class="phead">
+    <p class="eyebrow">Part XXXI</p>
+    <h1>Android Best Practices &amp; <em>Anti-Patterns</em></h1>
+    <p class="deck">A side-by-side catalogue of the Android-specific patterns that separate code that works on your phone from code that survives a million devices. Every pair is a defect that has shipped, not a style preference.</p>
+  </header>
+
+  <div class="note"><span class="lab">How to read this part</span><p>The left column is not strawman code — it is what reasonable engineers write under deadline, and most of it passes review. What makes each one wrong is a failure mode that only appears under a condition your development device rarely reproduces: process death, a slow network, a revoked permission, an OEM battery optimiser, or a hundred thousand rows. The <em>why</em> line under each pair is the interview answer.</p></div>
+
+  <h2><span class="cn">Chapter 180</span>Lifecycle and context</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — work keyed to the wrong lifecycle</div><pre>class MapFragment : Fragment() {
+    override fun onCreateView(...): View {
+        viewLifecycleOwner // available…
+        lifecycleScope.launch {          // …but not used
+            locationRepo.updates().collect { drawPin(it) }
+        }
+        return binding.root
+    }
+}</pre>
+      <p class="why"><code>lifecycleScope</code> on a Fragment lives until <code>onDestroy</code>, but the <em>view</em> dies at <code>onDestroyView</code> — which happens every time the fragment goes on the back stack. The collector keeps drawing into a destroyed view hierarchy: a leak plus an <code>IllegalStateException</code> when the binding is gone.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — scope to the view, not the fragment</div><pre>override fun onViewCreated(v: View, s: Bundle?) {
+    viewLifecycleOwner.lifecycleScope.launch {
+        viewLifecycleOwner.repeatOnLifecycle(STARTED) {
+            locationRepo.updates().collect { drawPin(it) }
+        }
+    }
+}</pre>
+      <p class="why">Two different lifetimes exist in a Fragment and they differ by a whole back-stack traversal. <code>viewLifecycleOwner</code> plus <code>repeatOnLifecycle</code> tears the collector <em>and</em> the upstream down when the view goes away.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — state that cannot survive a kill</div><pre>class SessionManager {
+    var currentUser: User? = null       // set at login
+    val isLoggedIn get() = currentUser != null
+}
+
+// Screen assumes it is populated:
+if (session.isLoggedIn) showDashboard() else showLogin()</pre>
+      <p class="why">After process death the singleton is reconstructed with <code>currentUser = null</code> while the task record is restored, so the user returns from Recents and is silently logged out. Reproduces constantly on low-end devices and almost never on a developer's phone.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — persisted, observable session</div><pre>class SessionRepository(private val store: DataStore&lt;Prefs&gt;) {
+    val session: Flow&lt;Session?&gt; = store.data
+        .map { it[USER_JSON]?.let(::decodeSession) }
+
+    suspend fun signIn(s: Session) = store.edit { it[USER_JSON] = encode(s) }
+    suspend fun signOut() = store.edit { it.remove(USER_JSON) }
+}</pre>
+      <p class="why">The test: <em>if this value vanished right now, would the app misbehave?</em> If yes it belongs on disk, observed — not in a field. Verify with <code>adb shell am kill</code>, not by rotating.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 181</span>Background work</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — durability by optimism</div><pre>fun submitReview(review: Review) {
+    appScope.launch {
+        api.postReview(review)          // no retry, no persistence
+        toast("Thanks for your review!")
+    }
+}</pre>
+      <p class="why">Three defects. The coroutine dies with the process, so a review composed on a train is silently lost. A transient 503 discards it. And the toast fires from a scope that outlives the screen, so it can appear over an unrelated part of the app — or crash if the Activity is gone.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — persist first, then sync</div><pre>suspend fun submitReview(review: Review) {
+    val id = outbox.enqueue(                 // durable, idempotency key
+        Operation(id = UUID.randomUUID().toString(), payload = review)
+    )
+    SyncWorker.enqueueUnique(context)        // constraints + backoff
+}
+// The UI observes the outbox row and shows pending → sent → failed.</pre>
+      <p class="why">Anything the user believes is saved must reach disk before the network is attempted. WorkManager then guarantees it eventually runs across process death and reboot — and the idempotency key means the retry cannot create a second review.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — polling on a timer</div><pre>PeriodicWorkRequestBuilder&lt;SyncWorker&gt;(15, MINUTES).build()
+    .let { wm.enqueue(it) }        // duplicated every launch
+
+// inside the worker:
+wakeLock.acquire()
+sync()                              // may throw
+wakeLock.release()                  // unreachable on failure</pre>
+      <p class="why">Every launch enqueues another worker, so they race and multiply. The wakelock leaks on the error path and holds the CPU awake indefinitely. This is the shape of "battery consumption doubled after the release".</p></div>
+    <div class="cbox yes"><div class="lab">Practice — push-triggered, unique, bounded</div><pre>wm.enqueueUniquePeriodicWork(
+    "sync", ExistingPeriodicWorkPolicy.KEEP,
+    PeriodicWorkRequestBuilder&lt;SyncWorker&gt;(6, HOURS)
+        .setConstraints(Constraints(
+            requiredNetworkType = NetworkType.UNMETERED,
+            requiresBatteryNotLow = true))
+        .build())
+
+wakeLock.acquire(30_000)                    // hard timeout
+try { sync() } finally { if (wakeLock.isHeld) wakeLock.release() }</pre>
+      <p class="why">Server push is the trigger; periodic work is the safety net, not the mechanism. Unique work makes re-enqueueing idempotent, and a timeout means a crash cannot leave the CPU held.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 182</span>Permissions and privacy</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — ask at launch, assume forever</div><pre>override fun onCreate(s: Bundle?) {
+    requestPermissions(arrayOf(CAMERA, ACCESS_FINE_LOCATION,
+        READ_EXTERNAL_STORAGE, POST_NOTIFICATIONS), 42)
+}
+
+fun takePhoto() = camera.capture()   // assumes CAMERA is granted</pre>
+      <p class="why">A wall of prompts before the user knows what the app does produces the worst grant rates in the industry. Worse, permissions are revocable at any time — including while backgrounded — so an assumed grant is a <code>SecurityException</code> waiting for a user who changed their mind.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — in context, and always re-checked</div><pre>val camera = rememberLauncherForActivityResult(RequestPermission()) { granted -&gt;
+    if (granted) vm.onCameraReady() else vm.onCameraDenied()
+}
+
+fun onAddPhotoClicked() = when {
+    hasPermission(CAMERA) -&gt; openCamera()          // check every time
+    shouldShowRationale(CAMERA) -&gt; showWhyWeNeedIt()
+    else -&gt; camera.launch(CAMERA)
+}</pre>
+      <p class="why">Ask at the moment the value is obvious — when the user taps "Add photo". Every permission-gated call needs a not-granted-right-now branch, not just a request flow. And prefer the photo picker or <code>ACTION_GET_CONTENT</code>, which need no permission at all.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 183</span>Notifications, intents and deep links</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — untrusted link, mutable intent</div><pre>val pi = PendingIntent.getActivity(ctx, 0,
+    Intent(ACTION_OPEN), PendingIntent.FLAG_MUTABLE)
+
+// deep link handler
+val url = intent.data?.getQueryParameter("next")
+webView.loadUrl(url!!)                    // whatever the link says</pre>
+      <p class="why">A mutable PendingIntent wrapping an implicit intent lets another app fill it in and have it executed with your identity — intent redirection. And loading an arbitrary <code>next</code> parameter into a WebView is an open redirect: a phishing page rendered inside your app, wearing your branding.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — immutable, explicit, allow-listed</div><pre>val pi = PendingIntent.getActivity(ctx, requestCode,
+    Intent(ctx, DetailActivity::class.java).putExtra(EXTRA_ID, id),
+    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+// One resolver, unit-testable without an emulator:
+fun resolve(uri: Uri): Route? {
+    if (uri.host !in ALLOWED_HOSTS) return null
+    return ProductId.parse(uri.lastPathSegment)?.let(Route::Product)
+}</pre>
+      <p class="why">Deep links are untrusted input from the internet. Validate the host, parse IDs into typed values, and route through one resolver that a JVM test can cover in milliseconds.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 184</span>Storage and data</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — unbounded query on the main path</div><pre>@Query("SELECT * FROM messages ORDER BY ts DESC")
+fun all(): Flow&lt;List&lt;Message&gt;&gt;          // 80k rows, no index
+
+suspend fun importAll(items: List&lt;Message&gt;) {
+    items.forEach { dao.insert(it) }     // 80k transactions
+}</pre>
+      <p class="why">Room invalidates per <em>table</em>, so every write re-runs this query over the whole table and re-maps 80,000 objects — on a hot table that is a permanent CPU load. And per-row inserts mean one fsync each: an import that should take under a second takes a minute.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — bounded, indexed, batched</div><pre>@Entity(indices = [Index(value = ["chat_id", "ts"])])
+data class MessageEntity(...)
+
+@Query("SELECT * FROM messages WHERE chat_id = :id " +
+       "ORDER BY ts DESC LIMIT :limit")
+fun page(id: String, limit: Int = 50): Flow&lt;List&lt;Message&gt;&gt;
+
+@Insert(onConflict = REPLACE)
+suspend fun insertAll(items: List&lt;MessageEntity&gt;)   // one transaction</pre>
+      <p class="why">The composite index covers both the filter and the sort so SQLite skips the temporary b-tree. Confirm with <code>EXPLAIN QUERY PLAN</code>: "SEARCH … USING INDEX" is what you want, "SCAN TABLE" means you have none.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — data loss as a migration strategy</div><pre>Room.databaseBuilder(ctx, Db::class.java, "app.db")
+    .fallbackToDestructiveMigration()
+    .build()</pre>
+      <p class="why">On the next schema bump this silently deletes everything — including the outbox of writes the user believes were saved. It is a data-loss incident scheduled for whenever someone adds a column.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — real migrations, tested against real files</div><pre>.addMigrations(MIGRATION_8_9)
+
+@Test fun migrate_8_to_9_preserves_rows() {
+    helper.createDatabase(TEST_DB, 8).apply {
+        execSQL("INSERT INTO messages VALUES ('m1','hi',1700000000)"); close()
+    }
+    val db = helper.runMigrationsAndValidate(TEST_DB, 9, true, MIGRATION_8_9)
+    db.query("SELECT read FROM messages WHERE id='m1'").use {
+        it.moveToFirst(); assertEquals(0, it.getInt(0))
+    }
+}</pre>
+      <p class="why">Every shipped schema version is permanent public API — users skip releases, so version 3 must still reach version 12. Export the schema, commit it, and test every adjacent pair in CI.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 185</span>Networking</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — retry everything, jitter nothing</div><pre>suspend fun &lt;T&gt; retry(block: suspend () -&gt; T): T {
+    repeat(5) {
+        try { return block() } catch (e: Exception) { delay(1000) }
+    }
+    return block()
+}
+retry { api.placeOrder(cart) }</pre>
+      <p class="why">Four separate faults: it retries 4xx, which will never succeed; it swallows <code>CancellationException</code>, breaking structured concurrency; it retries a non-idempotent write with no key, so a post-send timeout double-charges; and with no jitter, a million clients retry in lockstep and turn a brief backend blip into a sustained outage.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — classify, jitter, key</div><pre>suspend fun &lt;T&gt; retrying(
+    attempts: Int = 4, baseMs: Long = 300,
+    retryable: (Throwable) -&gt; Boolean, block: suspend () -&gt; T,
+): T {
+    repeat(attempts) { i -&gt;
+        try { return block() }
+        catch (e: CancellationException) { throw e }
+        catch (e: Throwable) {
+            if (!retryable(e) || i == attempts - 1) throw e
+            delay(Random.nextLong(0, min(8_000, baseMs shl i)))  // full jitter
+        }
+    }
+    error("unreachable")
+}
+retrying(retryable = ::isTransient) { api.placeOrder(cart, key = op.id) }</pre>
+      <p class="why">Retry connection failures freely; retry a post-send timeout only behind an idempotency key generated at user commit and persisted before the call; never retry a 4xx.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 186</span>UI and Compose</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — work inside the item body</div><pre>LazyColumn {
+    items(orders) { order -&gt;                       // no key
+        val fmt = SimpleDateFormat("dd MMM", Locale.getDefault())
+        val total = order.lines.sumOf { it.price }  // recomputed per frame
+        Row {
+            Text(fmt.format(order.date))
+            AsyncImage(model = order.thumbUrl)      // unbounded decode
+        }
+    }
+}</pre>
+      <p class="why">A formatter allocated per item per frame, a sum recomputed during scroll, and full-resolution bitmap decodes. Without a <code>key</code>, inserting one order at the head shifts every item's remembered state and defeats reuse. This is what "the list is janky but recomposition counts look fine" actually means.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — precompute, key, bound</div><pre>// Mapped once, off the main thread, in the state layer:
+data class OrderRow(val id: String, val dateLabel: String,
+                    val totalLabel: String, val thumbUrl: String)
+
+LazyColumn {
+    items(rows, key = { it.id }, contentType = { "order" }) { row -&gt;
+        Row {
+            Text(row.dateLabel)
+            AsyncImage(
+                model = ImageRequest.Builder(ctx).data(row.thumbUrl)
+                    .size(120, 120).build(),
+                modifier = Modifier.size(60.dp))
+        }
+    }
+}</pre>
+      <p class="why">The item body should read fields and emit UI — nothing else. Every derivation moves into the state mapping, images decode to display size, and keys let the runtime move slots instead of rebuilding them.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — events smuggled inside state</div><pre>data class UiState(
+    val items: List&lt;Item&gt; = emptyList(),
+    val navigateTo: Route? = null,      // an event
+    val toast: String? = null,          // another event
+)
+LaunchedEffect(state.navigateTo) {
+    state.navigateTo?.let { nav.navigate(it); vm.clearNav() }
+}</pre>
+      <p class="why">Rotation re-emits the state and navigates a second time. Two identical error messages in a row show once, because <code>StateFlow</code> is distinct-until-changed. And every consumer must remember to call a clear method.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — state and events are different channels</div><pre>val state: StateFlow&lt;UiState&gt; = ...            // what the screen looks like
+private val _events = Channel&lt;UiEvent&gt;(BUFFERED)
+val events = _events.receiveAsFlow()            // what happens once
+
+LaunchedEffect(Unit) {
+    lifecycle.repeatOnLifecycle(STARTED) {
+        vm.events.collect { e -&gt; when (e) {
+            is Navigate -&gt; nav.navigate(e.route)
+            is ShowSnack -&gt; snackbar.showSnackbar(e.text)
+        } }
+    }
+}</pre>
+      <p class="why">The rule: if it should still be true after rotation it is state; if it should happen exactly once it is an event. A <code>Channel</code> delivers once, buffers while stopped, and replays nothing.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 187</span>Concurrency</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — lost updates and hidden blocking</div><pre>private val _state = MutableStateFlow(UiState())
+
+fun addItem(item: Item) {
+    _state.value = _state.value.copy(items = _state.value.items + item)
+}
+
+fun load() = viewModelScope.launch {
+    val data = api.fetchBlocking()      // blocks Dispatchers.Main
+    _state.value = _state.value.copy(data = data)
+}</pre>
+      <p class="why">Read-modify-write on a <code>StateFlow</code> loses updates under concurrency — two callers read the same value and the second write wins. And a blocking call on the default main dispatcher freezes the frame pipeline: dropped frames now, an ANR under a slow network.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — atomic updates, main-safety at the source</div><pre>fun addItem(item: Item) =
+    _state.update { it.copy(items = it.items + item) }      // CAS loop
+
+class Repo(private val api: Api, private val io: CoroutineDispatcher) {
+    /** Safe to call from any dispatcher. */
+    suspend fun fetch(): Data = withContext(io) { api.fetchBlocking() }
+}</pre>
+      <p class="why"><code>update {}</code> retries on conflict so no write is lost. Main-safety belongs to the function that knows it blocks, with an injected dispatcher so the test can replace it — never as a convention call sites must remember.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 188</span>Security</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — secrets, logs and a gate that isn't one</div><pre>object Config { const val API_SECRET = "sk_live_9f2b…" }   // in the APK
+
+Log.d(TAG, "auth ok, token=$accessToken")                  // in bug reports
+
+biometricPrompt.authenticate(info)
+override fun onAuthenticationSucceeded(r: AuthResult) {
+    unlocked = true; showBalance()                          // patchable branch
+}</pre>
+      <p class="why">A constant in the APK is extractable with <code>strings</code>. Tokens in logcat reach crash breadcrumbs and support bundles. And a biometric check that only flips a boolean is bypassed by patching the branch — nothing cryptographic depends on the result.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — server-side authority, hardware-backed keys</div><pre>// No secret ships. The server authorises; the client proves identity.
+
+val cipher = Cipher.getInstance(TRANSFORM).apply {
+    init(Cipher.DECRYPT_MODE, keystoreKey, GCMParameterSpec(128, iv))
+}
+biometricPrompt.authenticate(info, CryptoObject(cipher))
+
+override fun onAuthenticationSucceeded(r: AuthResult) {
+    // usable ONLY because the user authenticated — enforced by hardware
+    val token = r.cryptoObject!!.cipher!!.doFinal(encryptedToken)
+    session.restore(token)
+}</pre>
+      <p class="why">The client runs on hardware the attacker controls. Keys live in the Keystore and never enter your process; biometrics unlock a key rather than setting a flag; and every authorisation decision that matters is made by the server.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 189</span>Resources, configuration and accessibility</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — hardcoded everything</div><pre>Text("Delivered " + count + " orders")           // not translatable
+Box(Modifier.size(32.dp).clickable { onDelete() }) {
+    Icon(Icons.Default.Delete, contentDescription = null)
+}
+if (screenWidthDp &gt; 600) TwoPane() else OnePane()   // breaks on fold</pre>
+      <p class="why">String concatenation cannot be translated or pluralised — word order differs by language. A 32dp target fails the minimum touch size and the icon announces nothing to TalkBack. And a raw width threshold misses that a foldable changes class at runtime, mid-flow.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — resources, semantics, size classes</div><pre>Text(pluralStringResource(R.plurals.orders_delivered, count, count))
+
+IconButton(onClick = onDelete,                     // 48dp target, Role.Button
+    modifier = Modifier.semantics {
+        contentDescription = "Delete ${item.name}"
+    }) { Icon(Icons.Default.Delete, contentDescription = null) }
+
+when (windowSizeClass.widthSizeClass) {
+    WindowWidthSizeClass.Expanded -&gt; TwoPane()
+    else -&gt; OnePane()
+}</pre>
+      <p class="why">Plurals handle languages with more than two forms. The semantics annotation serves TalkBack and the test at once — a screen that is hard to test is usually inaccessible. And window size classes react to folding and resizing, which fixed thresholds cannot.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 190</span>The catalogue as a checklist</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Area</th><th>The question to ask in review</th></tr></thead>
+    <tbody>
+      <tr><td>Lifecycle</td><td>Which lifetime does this work belong to — view, screen, user intent, or the device?</td></tr>
+      <tr><td>State</td><td>If the process died right now, would the user lose something they believe was saved?</td></tr>
+      <tr><td>Background</td><td>Must this happen eventually, or now and visibly? Is it unique, constrained and backed off?</td></tr>
+      <tr><td>Permissions</td><td>Is there a branch for "granted before, revoked since"?</td></tr>
+      <tr><td>Intents</td><td>Immutable and explicit? Is every deep-link parameter validated as untrusted input?</td></tr>
+      <tr><td>Storage</td><td>Bounded query, covering index, batched write, tested migration?</td></tr>
+      <tr><td>Networking</td><td>Which errors are retryable, is there jitter, and is the write idempotent?</td></tr>
+      <tr><td>UI</td><td>Any allocation or derivation inside an item body? Keys present? Events out of state?</td></tr>
+      <tr><td>Concurrency</td><td>Read-modify-write anywhere? Is main-safety owned by the blocking function?</td></tr>
+      <tr><td>Security</td><td>Does anything in the APK need to stay secret? Does a check gate a key or a boolean?</td></tr>
+      <tr><td>Resources</td><td>Concatenated strings, fixed touch targets, or hardcoded width thresholds?</td></tr>
+      <tr><td>Observability</td><td>If this fails silently in production, which metric moves?</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XXXI rapid recall</h4>
+    <ul>
+      <li><code>viewLifecycleOwner</code> for anything touching the view; <code>repeatOnLifecycle</code> to stop the producer.</li>
+      <li>State that matters is persisted and observed, never a field on a singleton.</li>
+      <li>Write to disk before the network for anything the user believes is saved.</li>
+      <li>Unique work, constraints, backoff, and wakelocks with a timeout in a <code>finally</code>.</li>
+      <li>Ask for permissions in context and re-check on every use.</li>
+      <li><code>FLAG_IMMUTABLE</code> plus an explicit component; deep links are untrusted input.</li>
+      <li>Bounded queries, covering indexes, batched inserts, tested migrations — never destructive.</li>
+      <li>Classify errors, jitter the backoff, key the write.</li>
+      <li>Nothing derived or allocated in a lazy item body; keys always; events in a channel.</li>
+      <li><code>update {}</code> not read-modify-write; main-safety at the blocking function.</li>
+      <li>Biometrics unlock a key; the server is the only real authority.</li>
+      <li>Plurals, semantics, and window size classes rather than concatenation, 32dp and magic numbers.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p30" data-p="p30"><span class="k">Previous</span><span class="t">← Part XXX</span></a><a class="r" href="#home" data-p="home"><span class="k">Back to</span><span class="t">Contents →</span></a></div>
+</section>

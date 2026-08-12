@@ -171,6 +171,19 @@ class SyncQueue(
   <p><strong>Follow-ups:</strong> "How do you handle operations that depend on each other?" — either FIFO with stop-on-failure as here, or an explicit dependency field. "What if the payload references a local ID the server has not seen?" — ID mapping: when the create succeeds, rewrite queued operations that reference the local ID with the server's. That is a real and commonly-missed requirement.</p>
 
   <h2><span class="cn">Chapter 137</span>Problem: a typed state machine</h2>
+  <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Loading: Search(q) / Fetch(q)
+  Loading --> Ready: Loaded(items)
+  Loading --> Failed: Errored(retryable)
+  Loading --> Loading: Search(q2) / Fetch(q2)
+  Failed --> Loading: Retry / Fetch(q)
+  Failed --> Loading: Search(q2) / Fetch(q2)
+  Ready --> Loading: Search(q2) / Fetch(q2)
+  </pre>
+  <p>Every edge is one line of the reducer, and every edge is one unit test with no coroutines, no mocks and no clock. Events with no edge from the current state are ignored rather than crashing — which is what makes a stale <code>Loaded</code> from a superseded query harmless.</p>
+
   <div class="code1"><div class="lab">Pure, exhaustive, trivially testable</div><pre>sealed interface State {
     data object Idle : State
     data class Loading(val query: String) : State

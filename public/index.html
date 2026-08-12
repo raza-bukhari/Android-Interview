@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The Staff Android Interview</title>
-<meta name="description" content="A book-length interview preparation guide for Staff, Principal and Mobile Architect level Android engineers: 30 parts, 179 chapters, 18 mobile system designs, graded answers and mock loops.">
+<meta name="description" content="A book-length interview preparation guide for Staff, Principal and Mobile Architect level Android engineers: 31 parts, 190 chapters, 18 mobile system designs, graded answers, mock loops and an Android best-practice catalogue.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F3F4F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0D131E" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E">
 <meta property="og:type" content="website">
 <meta property="og:title" content="The Staff Android Interview">
-<meta property="og:description" content="A book-length interview preparation guide for Staff, Principal and Mobile Architect level Android engineers: 30 parts, 179 chapters, 18 mobile system designs, graded answers and mock loops.">
+<meta property="og:description" content="A book-length interview preparation guide for Staff, Principal and Mobile Architect level Android engineers: 31 parts, 190 chapters, 18 mobile system designs, graded answers, mock loops and an Android best-practice catalogue.">
 <meta name="twitter:card" content="summary">
 <script>document.documentElement.classList.add('js');
 (function(){try{var t=localStorage.getItem('sai-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
-<style>:root{--paper: #F3F4F8;--paper-2: #FFFFFF;--rule: #D6D9E3;--rule-soft: #E6E8EF;--text: #171C28;--text-2: #4A5265;--text-3: #6E7689;--blue: #1B4A8F;--blue-soft: #E7EDF7;--brass: #8A6218;--brass-soft: #F4EEDF;--bad: #A32B2B;--bad-soft: #FBEDEC;--good: #1F6B4A;--good-soft: #E9F4EE;--l1: #8E95A6;--l2: #5E7CA8;--l3: #1B4A8F;--l4: #8A6218;--l5: #6B2D5B;--shadow: 0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.05);--t-kw: #0033B3;--t-str: #067D17;--t-num: #1750EB;--t-cmt: #757575;--t-ann: #88750B;--t-fn: #00627A;--t-tag: #0033B3;--t-att: #174AD4;--serif: Charter,"Bitstream Charter","Iowan Old Style",Cambria,Georgia,"Times New Roman",serif;--sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono: ui-monospace,"Cascadia Mono","Cascadia Code",Consolas,"SF Mono",Menlo,monospace;--measure: 74ch}@media (prefers-color-scheme: dark){:root{--paper: #0D131E;--paper-2: #141B28;--rule: #2A3348;--rule-soft: #1E2636;--text: #E4E7EF;--text-2: #AEB6C6;--text-3: #7E879B;--blue: #7FA8E4;--blue-soft: #17253C;--brass: #D3A855;--brass-soft: #2A2314;--bad: #E88C86;--bad-soft: #2C1A19;--good: #7FC8A0;--good-soft: #14241C;--l1: #6E7689;--l2: #6C8FC4;--l3: #7FA8E4;--l4: #D3A855;--l5: #C589B4;--shadow: 0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.3);--t-kw: #CC7832;--t-str: #6E8B5E;--t-num: #6897BB;--t-cmt: #848484;--t-ann: #BBB529;--t-fn: #FFC66D;--t-tag: #E8BF6A;--t-att: #BABABA}}:root[data-theme="dark"]{--paper: #0D131E;--paper-2: #141B28;--rule: #2A3348;--rule-soft: #1E2636;--text: #E4E7EF;--text-2: #AEB6C6;--text-3: #7E879B;--blue: #7FA8E4;--blue-soft: #17253C;--brass: #D3A855;--brass-soft: #2A2314;--bad: #E88C86;--bad-soft: #2C1A19;--good: #7FC8A0;--good-soft: #14241C;--l1: #6E7689;--l2: #6C8FC4;--l3: #7FA8E4;--l4: #D3A855;--l5: #C589B4;--shadow: 0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.3);--t-kw: #CC7832;--t-str: #6E8B5E;--t-num: #6897BB;--t-cmt: #848484;--t-ann: #BBB529;--t-fn: #FFC66D;--t-tag: #E8BF6A;--t-att: #BABABA}:root[data-theme="light"]{--paper: #F3F4F8;--paper-2: #FFFFFF;--rule: #D6D9E3;--rule-soft: #E6E8EF;--text: #171C28;--text-2: #4A5265;--text-3: #6E7689;--blue: #1B4A8F;--blue-soft: #E7EDF7;--brass: #8A6218;--brass-soft: #F4EEDF;--bad: #A32B2B;--bad-soft: #FBEDEC;--good: #1F6B4A;--good-soft: #E9F4EE;--l1: #8E95A6;--l2: #5E7CA8;--l3: #1B4A8F;--l4: #8A6218;--l5: #6B2D5B;--t-kw: #0033B3;--t-str: #067D17;--t-num: #1750EB;--t-cmt: #757575;--t-ann: #88750B;--t-fn: #00627A;--t-tag: #0033B3;--t-att: #174AD4}*{box-sizing: border-box}body{margin:0;background:var(--paper);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased}a{color: var(--blue);text-underline-offset: 2px}a:focus-visible,summary:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:3px;border-radius:2px}.shell{display:grid;grid-template-columns:255px minmax(0,1fr);gap:52px;max-width:1300px;margin:0 auto;padding:0 32px 120px}@media (min-width:1280px){.shell{grid-template-columns:255px minmax(0,1fr) 200px;gap:44px;max-width:1420px}}.rail{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:34px 0 60px;border-right:1px solid var(--rule-soft);font-size:13px}.rail-brand{font-family:var(--serif);font-size:17px;font-weight:600;line-height:1.2;margin:0 14px 4px 0}.rail-sub{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin:0 0 16px}.railtools{display:flex;gap:6px;margin:0 12px 10px 0}.search{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:6px 9px;color:var(--text);background:var(--paper-2);border:1px solid var(--rule);border-radius:4px}.search::placeholder{color:var(--text-3)}.tbtn{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:6px 8px;color:var(--text-2);background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;cursor:pointer}.tbtn:hover{color:var(--blue);border-color:var(--blue)}.results{margin:0 12px 12px 0;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2);max-height:50vh;overflow-y:auto;box-shadow:var(--shadow)}.results:empty{display:none}.results a{display:block;padding:7px 10px;text-decoration:none;border-bottom:1px solid var(--rule-soft)}.results a:last-child{border-bottom:0}.results a:hover,.results a.sel{background:var(--blue-soft)}.results .rt{display:block;color:var(--text);font-size:12.5px;line-height:1.35}.results .rc{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-top:2px}.results mark{background:transparent;color:var(--blue);font-weight:650}.results .none{padding:10px;color:var(--text-3);font-size:12.5px}#mobnav > summary{display:none}.rail nav{display:flex;flex-direction:column;gap:1px}.rail nav a{display:grid;grid-template-columns:34px 1fr auto;gap:8px;padding:5px 10px 5px 0;color:var(--text-2);text-decoration:none;line-height:1.35;border-radius:3px}.rail nav a:hover{color:var(--blue);background:var(--blue-soft)}.rail nav a.on{color:var(--blue);font-weight:650;background:var(--blue-soft)}.rail nav a .num{font-family:var(--mono);font-size:10px;color:var(--text-3);padding-top:3px;letter-spacing:.03em;text-align:right}.rail nav a.on .num{color:var(--brass)}.rail nav a .seen{visibility:hidden;color:var(--good);font-size:11px;padding-top:1px}.rail nav a.visited .seen{visibility:visible}.rail .group{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin:20px 0 7px;padding-bottom:6px;border-bottom:1px solid var(--rule-soft)}main{padding:34px 0 0;min-width:0}.otp{display:none}@media (min-width:1280px){.otp{display:block;position:sticky;top:0;align-self:start;max-height:100vh;overflow-y:auto;padding:40px 0 60px;font-size:12.5px}.otp h6{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);margin:0 0 10px;font-weight:400}.otp a{display:block;padding:4px 0 4px 11px;color:var(--text-2);text-decoration:none;border-left:2px solid var(--rule-soft);line-height:1.35}.otp a:hover{color:var(--blue);border-left-color:var(--blue)}.otp a.here{color:var(--blue);border-left-color:var(--brass)}.otp .cn{display:block;font-family:var(--mono);font-size:9px;color:var(--text-3);letter-spacing:.05em}}details.otp-inline{margin:0 0 26px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}@media (min-width:1280px){details.otp-inline{display:none}}details.otp-inline > summary{cursor:pointer;padding:9px 14px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)}details.otp-inline > div{padding:0 14px 12px;display:flex;flex-direction:column;gap:5px}details.otp-inline a{color:var(--text-2);text-decoration:none;font-size:13.5px}details.otp-inline a:hover{color:var(--blue)}.page{display:block}.js .page{display:none}.js .page.on{display:block;animation:fade .18s ease-out}@keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion: reduce){.js .page.on{animation:none}*{transition:none !important}}.phead{padding:8px 0 30px;border-bottom:2px solid var(--text);margin-bottom:10px}.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--brass);margin:0 0 16px}h1{font-family:var(--serif);font-weight:600;font-size:clamp(32px,4.6vw,50px);line-height:1.04;letter-spacing:-.02em;margin:0 0 18px;text-wrap:balance}h1 em{font-style:italic;color:var(--blue)}.deck{font-family:var(--serif);font-size:clamp(16px,1.9vw,19px);line-height:1.55;color:var(--text-2);max-width:62ch;margin:0}h2{font-family:var(--serif);font-weight:600;font-size:clamp(24px,3vw,31px);line-height:1.16;letter-spacing:-.015em;margin:58px 0 14px;text-wrap:balance;scroll-margin-top:20px}h2 .cn{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--brass);display:block;margin-bottom:7px;font-weight:400}h2 .anch{font-family:var(--mono);font-size:.5em;color:var(--text-3);text-decoration:none;opacity:0;margin-left:.4em;vertical-align:.35em}h2:hover .anch,.anch:focus-visible{opacity:1}h3{font-family:var(--serif);font-weight:600;font-size:20px;line-height:1.25;margin:34px 0 10px}h4{font-family:var(--sans);font-weight:650;font-size:14px;margin:26px 0 8px;letter-spacing:.005em}p,li{max-width:var(--measure)}p{margin:0 0 15px;color:var(--text-2)}main ul,main ol{padding-left:20px;margin:0 0 15px;color:var(--text-2)}main li{margin-bottom:5px}strong{color:var(--text);font-weight:650}code{font-family:var(--mono);font-size:.86em;background:var(--rule-soft);padding:1px 5px;border-radius:3px}.chip{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:3px;color:var(--paper);white-space:nowrap;vertical-align:1px}.c1{background:var(--l1)}.c2{background:var(--l2)}.c3{background:var(--l3)}.c4{background:var(--l4)}.c5{background:var(--l5);color:#fff}@media (prefers-color-scheme: dark){.c5{color:#1A0F17}}:root[data-theme="dark"] .c5{color:#1A0F17}.legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:11px 14px;margin:0 0 26px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2);font-size:12px}.legend span{color:var(--text-2);white-space:nowrap}.tw{overflow-x:auto;margin:22px 0 30px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}table{border-collapse:collapse;width:100%;min-width:640px;font-size:13.5px}th,td{text-align:left;padding:11px 15px;border-bottom:1px solid var(--rule-soft);vertical-align:top}thead th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--rule);background:var(--paper);position:sticky;top:0}tbody tr:last-child td{border-bottom:0}td:first-child{color:var(--text);font-weight:600}td{color:var(--text-2)}pre{font-family:var(--mono);font-size:12.6px;line-height:1.55;overflow-x:auto;margin:0;padding:14px 16px;background:var(--paper-2);color:var(--text)}.tok-kw{color:var(--t-kw);font-weight:600}.tok-str{color:var(--t-str)}.tok-num{color:var(--t-num)}.tok-cmt{color:var(--t-cmt);font-style:italic}.tok-ann{color:var(--t-ann)}.tok-fn{color:var(--t-fn)}.tok-tag{color:var(--t-tag)}.tok-att{color:var(--t-att)}.cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0 26px}.cbox{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--paper-2);min-width:0}.cbox > .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;padding:7px 14px;border-bottom:1px solid var(--rule);display:flex;gap:8px;align-items:center}.cbox.no > .lab{color:var(--bad);background:var(--bad-soft)}.cbox.yes > .lab{color:var(--good);background:var(--good-soft)}.cbox .why{font-size:12.5px;color:var(--text-2);padding:10px 14px;border-top:1px solid var(--rule-soft);margin:0;max-width:none}.code1{border:1px solid var(--rule);border-radius:4px;overflow:hidden;margin:18px 0 24px;background:var(--paper-2)}.code1 > .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);padding:7px 14px;border-bottom:1px solid var(--rule);background:var(--paper);display:flex;gap:8px;align-items:center}.copy{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);background:transparent;border:1px solid var(--rule);border-radius:3px;padding:2px 7px;cursor:pointer}.copy:hover{color:var(--blue);border-color:var(--blue)}.copy.done{color:var(--good);border-color:var(--good)}@media (max-width:900px){.cmp{grid-template-columns:1fr}}.q{border:1px solid var(--rule);border-left:3px solid var(--blue);border-radius:0 4px 4px 0;background:var(--paper-2);padding:20px 24px;margin:24px 0;box-shadow:var(--shadow)}.q > .qh{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--text);margin:0 0 4px;line-height:1.3;max-width:none}.q > .qt{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);margin:0 0 12px}.q h4{margin:18px 0 6px;font-size:12.5px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}.q h4:first-of-type{margin-top:12px}.q p,.q li{max-width:none}.q ol{padding-left:22px}.note{border-left:3px solid var(--brass);background:var(--brass-soft);padding:15px 20px;margin:22px 0;border-radius:0 4px 4px 0}.note p:last-child{margin-bottom:0}.note .lab{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--brass);display:block;margin-bottom:5px}.panel{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:20px 24px;margin:22px 0;box-shadow:var(--shadow)}.panel h4:first-child{margin-top:0}.panel p:last-child,.panel ul:last-child{margin-bottom:0}.levels{display:flex;flex-direction:column;gap:0;margin:20px 0 26px}.lv{display:grid;grid-template-columns:70px 1fr;gap:16px;padding:11px 0;border-top:1px solid var(--rule-soft);font-size:14px}.lv:last-child{border-bottom:1px solid var(--rule-soft)}.lv div:last-child{color:var(--text-2)}.lv b{align-self:start}pre.mermaid{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:18px;overflow-x:auto;margin:22px 0}.sttoggle{display:flex;align-items:center;gap:10px;margin:0 0 22px;padding:11px 14px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2);font-size:13px;color:var(--text-2)}.sttoggle button{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;color:var(--text-2);background:var(--paper);border:1px solid var(--rule);border-radius:3px;cursor:pointer}.sttoggle button[aria-pressed="true"]{color:var(--brass);border-color:var(--brass)}.selftest tbody tr:not(.revealed) td:last-child{filter:blur(4.5px);cursor:pointer;user-select:none}.selftest tbody tr td:last-child{transition:filter .12s ease-out}.selftest tbody tr{cursor:pointer}.pagenav{display:flex;justify-content:space-between;gap:16px;margin-top:70px;padding-top:22px;border-top:2px solid var(--text);font-size:13.5px}.pagenav a{text-decoration:none;display:block;max-width:46%}.pagenav .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);display:block}.pagenav .t{font-family:var(--serif);font-size:16px;color:var(--blue)}.pagenav .r{text-align:right;margin-left:auto}.toclist{border-top:1px solid var(--rule);margin:26px 0}.toclist a{display:grid;grid-template-columns:70px 1fr;gap:18px;padding:13px 4px;border-bottom:1px solid var(--rule-soft);text-decoration:none;align-items:baseline}.toclist a:hover{background:var(--blue-soft)}.toclist .rn{font-family:var(--mono);font-size:11px;color:var(--brass);letter-spacing:.05em}.toclist .tt{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--text)}.toclist .td{font-size:13px;color:var(--text-2);display:block;margin-top:2px;max-width:70ch}.toclist a:hover .tt{color:var(--blue)}.stats{display:flex;flex-wrap:wrap;border-top:1px solid var(--rule);padding-top:18px;margin-top:26px}.stat{padding-right:30px;margin-right:30px;border-right:1px solid var(--rule)}.stat:last-child{border-right:0;margin-right:0;padding-right:0}.stat b{display:block;font-family:var(--serif);font-size:27px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}.stat span{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)}.chk{list-style:none;padding:0}.chk li{padding-left:24px;position:relative;margin-bottom:7px}.chk li::before{content:"□";position:absolute;left:2px;color:var(--brass);font-size:15px}@media (max-width:1279px){.shell{grid-template-columns:255px minmax(0,1fr)}}@media (max-width:960px){.shell{grid-template-columns:1fr;gap:0;padding:0 20px 80px}.rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule);padding:20px 0}.railtools{margin-right:0}.results{margin-right:0}#mobnav > summary{display:block;cursor:pointer;list-style:none;padding:8px 0;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--blue);border-top:1px solid var(--rule-soft)}#mobnav > summary::-webkit-details-marker{display:none}#mobnav > summary::after{content:" ▾";color:var(--text-3)}#mobnav[open] > summary::after{content:" ▴"}.rail nav{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));padding-top:8px}}@media (max-width:500px){table.t2{min-width:0}table.t2 thead{display:none}table.t2 tr{display:block;border-bottom:1px solid var(--rule)}table.t2 tr:last-child{border-bottom:0}table.t2 td{display:block;border:0;padding:9px 14px 0}table.t2 td:last-child{padding-bottom:11px}}@media print{.rail,.otp,.pagenav,.copy,.railtools,.results,.sttoggle,details.otp-inline{display:none !important}.shell{display:block;max-width:none;padding:0}main{padding:0}.js .page:not(.on){display:none !important}body{background:#fff;color:#000;font-size:10.5pt}.q,.cmp,.panel,.note,.code1,.cbox,table{break-inside:avoid}h2,h3{break-after:avoid}pre{white-space:pre-wrap;word-break:break-word}.tw{overflow:visible}table{min-width:0}a{color:#000;text-decoration:none}}</style>
+<style>:root{--paper: #F3F4F8;--paper-2: #FFFFFF;--rule: #D6D9E3;--rule-soft: #E6E8EF;--text: #171C28;--text-2: #4A5265;--text-3: #6E7689;--blue: #1B4A8F;--blue-soft: #E7EDF7;--brass: #8A6218;--brass-soft: #F4EEDF;--bad: #A32B2B;--bad-soft: #FBEDEC;--good: #1F6B4A;--good-soft: #E9F4EE;--l1: #8E95A6;--l2: #5E7CA8;--l3: #1B4A8F;--l4: #8A6218;--l5: #6B2D5B;--shadow: 0 1px 2px rgba(16,23,37,.06),0 8px 24px rgba(16,23,37,.05);--t-kw: #0033B3;--t-str: #067D17;--t-num: #1750EB;--t-cmt: #757575;--t-ann: #88750B;--t-fn: #00627A;--t-doc: #757575;--t-tpl: #0037A6;--t-tag: #0033B3;--t-att: #174AD4;--serif: Charter,"Bitstream Charter","Iowan Old Style",Cambria,Georgia,"Times New Roman",serif;--sans: system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--mono: ui-monospace,"Cascadia Mono","Cascadia Code",Consolas,"SF Mono",Menlo,monospace;--measure: 74ch}@media (prefers-color-scheme: dark){:root{--paper: #0D131E;--paper-2: #141B28;--rule: #2A3348;--rule-soft: #1E2636;--text: #E4E7EF;--text-2: #AEB6C6;--text-3: #7E879B;--blue: #7FA8E4;--blue-soft: #17253C;--brass: #D3A855;--brass-soft: #2A2314;--bad: #E88C86;--bad-soft: #2C1A19;--good: #7FC8A0;--good-soft: #14241C;--l1: #6E7689;--l2: #6C8FC4;--l3: #7FA8E4;--l4: #D3A855;--l5: #C589B4;--shadow: 0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.3);--t-kw: #CC7832;--t-str: #6E8B5E;--t-num: #6897BB;--t-cmt: #848484;--t-ann: #BBB529;--t-fn: #FFC66D;--t-doc: #6A9F5C;--t-tpl: #CC7832;--t-tag: #E8BF6A;--t-att: #BABABA}}:root[data-theme="dark"]{--paper: #0D131E;--paper-2: #141B28;--rule: #2A3348;--rule-soft: #1E2636;--text: #E4E7EF;--text-2: #AEB6C6;--text-3: #7E879B;--blue: #7FA8E4;--blue-soft: #17253C;--brass: #D3A855;--brass-soft: #2A2314;--bad: #E88C86;--bad-soft: #2C1A19;--good: #7FC8A0;--good-soft: #14241C;--l1: #6E7689;--l2: #6C8FC4;--l3: #7FA8E4;--l4: #D3A855;--l5: #C589B4;--shadow: 0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.3);--t-kw: #CC7832;--t-str: #6E8B5E;--t-num: #6897BB;--t-cmt: #848484;--t-ann: #BBB529;--t-fn: #FFC66D;--t-doc: #6A9F5C;--t-tpl: #CC7832;--t-tag: #E8BF6A;--t-att: #BABABA}:root[data-theme="light"]{--paper: #F3F4F8;--paper-2: #FFFFFF;--rule: #D6D9E3;--rule-soft: #E6E8EF;--text: #171C28;--text-2: #4A5265;--text-3: #6E7689;--blue: #1B4A8F;--blue-soft: #E7EDF7;--brass: #8A6218;--brass-soft: #F4EEDF;--bad: #A32B2B;--bad-soft: #FBEDEC;--good: #1F6B4A;--good-soft: #E9F4EE;--l1: #8E95A6;--l2: #5E7CA8;--l3: #1B4A8F;--l4: #8A6218;--l5: #6B2D5B;--t-kw: #0033B3;--t-str: #067D17;--t-num: #1750EB;--t-cmt: #757575;--t-ann: #88750B;--t-fn: #00627A;--t-doc: #757575;--t-tpl: #0037A6;--t-tag: #0033B3;--t-att: #174AD4}*{box-sizing: border-box}body{margin:0;background:var(--paper);color:var(--text);font-family:var(--sans);font-size:16px;line-height:1.62;-webkit-font-smoothing:antialiased}a{color: var(--blue);text-underline-offset: 2px}a:focus-visible,summary:focus-visible,button:focus-visible,input:focus-visible{outline:2px solid var(--brass);outline-offset:3px;border-radius:2px}.shell{display:grid;grid-template-columns:255px minmax(0,1fr);gap:52px;max-width:1300px;margin:0 auto;padding:0 32px 120px}@media (min-width:1280px){.shell{grid-template-columns:255px minmax(0,1fr) 200px;gap:44px;max-width:1420px}}.rail{position:sticky;top:0;align-self:start;height:100vh;overflow-y:auto;padding:34px 0 60px;border-right:1px solid var(--rule-soft);font-size:13px}.rail-brand{font-family:var(--serif);font-size:17px;font-weight:600;line-height:1.2;margin:0 14px 4px 0}.rail-sub{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin:0 0 16px}.railtools{display:flex;gap:6px;margin:0 12px 10px 0}.search{flex:1;min-width:0;font:inherit;font-size:12.5px;padding:6px 9px;color:var(--text);background:var(--paper-2);border:1px solid var(--rule);border-radius:4px}.search::placeholder{color:var(--text-3)}.tbtn{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;padding:6px 8px;color:var(--text-2);background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;cursor:pointer}.tbtn:hover{color:var(--blue);border-color:var(--blue)}.results{margin:0 12px 12px 0;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2);max-height:50vh;overflow-y:auto;box-shadow:var(--shadow)}.results:empty{display:none}.results a{display:block;padding:7px 10px;text-decoration:none;border-bottom:1px solid var(--rule-soft)}.results a:last-child{border-bottom:0}.results a:hover,.results a.sel{background:var(--blue-soft)}.results .rt{display:block;color:var(--text);font-size:12.5px;line-height:1.35}.results .rc{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-top:2px}.results mark{background:transparent;color:var(--blue);font-weight:650}.results .none{padding:10px;color:var(--text-3);font-size:12.5px}#mobnav > summary{display:none}.rail nav{display:flex;flex-direction:column;gap:1px}.rail nav a{display:grid;grid-template-columns:34px 1fr auto;gap:8px;padding:5px 10px 5px 0;color:var(--text-2);text-decoration:none;line-height:1.35;border-radius:3px}.rail nav a:hover{color:var(--blue);background:var(--blue-soft)}.rail nav a.on{color:var(--blue);font-weight:650;background:var(--blue-soft)}.rail nav a .num{font-family:var(--mono);font-size:10px;color:var(--text-3);padding-top:3px;letter-spacing:.03em;text-align:right}.rail nav a.on .num{color:var(--brass)}.rail nav a .seen{visibility:hidden;color:var(--good);font-size:11px;padding-top:1px}.rail nav a.visited .seen{visibility:visible}.rail .group{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);margin:20px 0 7px;padding-bottom:6px;border-bottom:1px solid var(--rule-soft)}main{padding:34px 0 0;min-width:0}.otp{display:none}@media (min-width:1280px){.otp{display:block;position:sticky;top:0;align-self:start;max-height:100vh;overflow-y:auto;padding:40px 0 60px;font-size:12.5px}.otp h6{font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-3);margin:0 0 10px;font-weight:400}.otp a{display:block;padding:4px 0 4px 11px;color:var(--text-2);text-decoration:none;border-left:2px solid var(--rule-soft);line-height:1.35}.otp a:hover{color:var(--blue);border-left-color:var(--blue)}.otp a.here{color:var(--blue);border-left-color:var(--brass)}.otp .cn{display:block;font-family:var(--mono);font-size:9px;color:var(--text-3);letter-spacing:.05em}}.otp h6{display:flex;align-items:center;gap:8px}.otphide{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);background:transparent;border:1px solid var(--rule);border-radius:3px;padding:1px 6px;cursor:pointer}.otphide:hover{color:var(--blue);border-color:var(--blue)}.otpshow{display:none;position:sticky;top:34px;align-self:start;margin-left:-8px;writing-mode:vertical-rl;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:10px 4px;cursor:pointer}.otpshow:hover{color:var(--blue);border-color:var(--blue)}@media (min-width:1280px){:root.otp-off .shell{grid-template-columns:255px minmax(0,1fr) 28px}:root.otp-off .otp{display:none}:root.otp-off .otpshow{display:block}}details.otp-inline{margin:0 0 26px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}@media (min-width:1280px){details.otp-inline{display:none}}details.otp-inline > summary{cursor:pointer;padding:9px 14px;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)}details.otp-inline > div{padding:0 14px 12px;display:flex;flex-direction:column;gap:5px}details.otp-inline a{color:var(--text-2);text-decoration:none;font-size:13.5px}details.otp-inline a:hover{color:var(--blue)}.page{display:block}.js .page{display:none}.js .page.on{display:block;animation:fade .18s ease-out}@keyframes fade{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}@media (prefers-reduced-motion: reduce){.js .page.on{animation:none}*{transition:none !important}}.phead{padding:8px 0 30px;border-bottom:2px solid var(--text);margin-bottom:10px}.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--brass);margin:0 0 16px}h1{font-family:var(--serif);font-weight:600;font-size:clamp(32px,4.6vw,50px);line-height:1.04;letter-spacing:-.02em;margin:0 0 18px;text-wrap:balance}h1 em{font-style:italic;color:var(--blue)}.deck{font-family:var(--serif);font-size:clamp(16px,1.9vw,19px);line-height:1.55;color:var(--text-2);max-width:62ch;margin:0}h2{font-family:var(--serif);font-weight:600;font-size:clamp(24px,3vw,31px);line-height:1.16;letter-spacing:-.015em;margin:58px 0 14px;text-wrap:balance;scroll-margin-top:20px}h2 .cn{font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--brass);display:block;margin-bottom:7px;font-weight:400}h2 .anch{font-family:var(--mono);font-size:.5em;color:var(--text-3);text-decoration:none;opacity:0;margin-left:.4em;vertical-align:.35em}h2:hover .anch,.anch:focus-visible{opacity:1}h3{font-family:var(--serif);font-weight:600;font-size:20px;line-height:1.25;margin:34px 0 10px}h4{font-family:var(--sans);font-weight:650;font-size:14px;margin:26px 0 8px;letter-spacing:.005em}p,li{max-width:var(--measure)}p{margin:0 0 15px;color:var(--text-2)}main ul,main ol{padding-left:20px;margin:0 0 15px;color:var(--text-2)}main li{margin-bottom:5px}strong{color:var(--text);font-weight:650}code{font-family:var(--mono);font-size:.86em;background:var(--rule-soft);padding:1px 5px;border-radius:3px}.chip{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:3px;color:var(--paper);white-space:nowrap;vertical-align:1px}.c1{background:var(--l1)}.c2{background:var(--l2)}.c3{background:var(--l3)}.c4{background:var(--l4)}.c5{background:var(--l5);color:#fff}@media (prefers-color-scheme: dark){.c5{color:#1A0F17}}:root[data-theme="dark"] .c5{color:#1A0F17}.legend{display:flex;flex-wrap:wrap;gap:6px 16px;padding:11px 14px;margin:0 0 26px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2);font-size:12px}.legend span{color:var(--text-2);white-space:nowrap}.tw{overflow-x:auto;margin:22px 0 30px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}table{border-collapse:collapse;width:100%;min-width:640px;font-size:13.5px}th,td{text-align:left;padding:11px 15px;border-bottom:1px solid var(--rule-soft);vertical-align:top}thead th{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--rule);background:var(--paper);position:sticky;top:0}tbody tr:last-child td{border-bottom:0}td:first-child{color:var(--text);font-weight:600}td{color:var(--text-2)}pre{font-family:var(--mono);font-size:12.6px;line-height:1.55;overflow-x:auto;margin:0;padding:14px 16px;background:var(--paper-2);color:var(--text)}.tok-kw{color:var(--t-kw);font-weight:600}.tok-str{color:var(--t-str)}.tok-num{color:var(--t-num)}.tok-cmt{color:var(--t-cmt);font-style:italic}.tok-doc{color:var(--t-doc);font-style:italic}.tok-tpl{color:var(--t-tpl);font-weight:600}.tok-ann{color:var(--t-ann)}.tok-fn{color:var(--t-fn)}.tok-tag{color:var(--t-tag)}.tok-att{color:var(--t-att)}.cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:18px 0 26px}.cbox{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--paper-2);min-width:0}.cbox > .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;padding:7px 14px;border-bottom:1px solid var(--rule);display:flex;gap:8px;align-items:center}.cbox.no > .lab{color:var(--bad);background:var(--bad-soft)}.cbox.yes > .lab{color:var(--good);background:var(--good-soft)}.cbox .why{font-size:12.5px;color:var(--text-2);padding:10px 14px;border-top:1px solid var(--rule-soft);margin:0;max-width:none}.code1{border:1px solid var(--rule);border-radius:4px;overflow:hidden;margin:18px 0 24px;background:var(--paper-2)}.code1 > .lab{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3);padding:7px 14px;border-bottom:1px solid var(--rule);background:var(--paper);display:flex;gap:8px;align-items:center}.copy{margin-left:auto;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);background:transparent;border:1px solid var(--rule);border-radius:3px;padding:2px 7px;cursor:pointer}.copy:hover{color:var(--blue);border-color:var(--blue)}.copy.done{color:var(--good);border-color:var(--good)}@media (max-width:900px){.cmp{grid-template-columns:1fr}}.q{border:1px solid var(--rule);border-left:3px solid var(--blue);border-radius:0 4px 4px 0;background:var(--paper-2);padding:20px 24px;margin:24px 0;box-shadow:var(--shadow)}.q > .qh{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--text);margin:0 0 4px;line-height:1.3;max-width:none}.q > .qt{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);margin:0 0 12px}.q h4{margin:18px 0 6px;font-size:12.5px;font-family:var(--mono);font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}.q h4:first-of-type{margin-top:12px}.q p,.q li{max-width:none}.q ol{padding-left:22px}.note{border-left:3px solid var(--brass);background:var(--brass-soft);padding:15px 20px;margin:22px 0;border-radius:0 4px 4px 0}.note p:last-child{margin-bottom:0}.note .lab{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--brass);display:block;margin-bottom:5px}.panel{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:20px 24px;margin:22px 0;box-shadow:var(--shadow)}.panel h4:first-child{margin-top:0}.panel p:last-child,.panel ul:last-child{margin-bottom:0}.levels{display:flex;flex-direction:column;gap:0;margin:20px 0 26px}.lv{display:grid;grid-template-columns:70px 1fr;gap:16px;padding:11px 0;border-top:1px solid var(--rule-soft);font-size:14px}.lv:last-child{border-bottom:1px solid var(--rule-soft)}.lv div:last-child{color:var(--text-2)}.lv b{align-self:start}pre.mermaid{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:18px;overflow-x:auto;margin:22px 0}.sttoggle{display:flex;align-items:center;gap:10px;margin:0 0 22px;padding:11px 14px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2);font-size:13px;color:var(--text-2)}.sttoggle button{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;color:var(--text-2);background:var(--paper);border:1px solid var(--rule);border-radius:3px;cursor:pointer}.sttoggle button[aria-pressed="true"]{color:var(--brass);border-color:var(--brass)}.selftest tbody tr:not(.revealed) td:last-child{filter:blur(4.5px);cursor:pointer;user-select:none}.selftest tbody tr td:last-child{transition:filter .12s ease-out}.selftest tbody tr{cursor:pointer}.pagenav{display:flex;justify-content:space-between;gap:16px;margin-top:70px;padding-top:22px;border-top:2px solid var(--text);font-size:13.5px}.pagenav a{text-decoration:none;display:block;max-width:46%}.pagenav .k{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-3);display:block}.pagenav .t{font-family:var(--serif);font-size:16px;color:var(--blue)}.pagenav .r{text-align:right;margin-left:auto}.toclist{border-top:1px solid var(--rule);margin:26px 0}.toclist a{display:grid;grid-template-columns:70px 1fr;gap:18px;padding:13px 4px;border-bottom:1px solid var(--rule-soft);text-decoration:none;align-items:baseline}.toclist a:hover{background:var(--blue-soft)}.toclist .rn{font-family:var(--mono);font-size:11px;color:var(--brass);letter-spacing:.05em}.toclist .tt{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--text)}.toclist .td{font-size:13px;color:var(--text-2);display:block;margin-top:2px;max-width:70ch}.toclist a:hover .tt{color:var(--blue)}.stats{display:flex;flex-wrap:wrap;border-top:1px solid var(--rule);padding-top:18px;margin-top:26px}.stat{padding-right:30px;margin-right:30px;border-right:1px solid var(--rule)}.stat:last-child{border-right:0;margin-right:0;padding-right:0}.stat b{display:block;font-family:var(--serif);font-size:27px;font-weight:600;line-height:1.1;font-variant-numeric:tabular-nums}.stat span{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)}.chk{list-style:none;padding:0}.chk li{padding-left:24px;position:relative;margin-bottom:7px}.chk li::before{content:"□";position:absolute;left:2px;color:var(--brass);font-size:15px}@media (max-width:1279px){.shell{grid-template-columns:255px minmax(0,1fr)}}@media (max-width:960px){.shell{grid-template-columns:1fr;gap:0;padding:0 20px 80px}.rail{position:static;height:auto;border-right:0;border-bottom:1px solid var(--rule);padding:20px 0}.railtools{margin-right:0}.results{margin-right:0}#mobnav > summary{display:block;cursor:pointer;list-style:none;padding:8px 0;font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--blue);border-top:1px solid var(--rule-soft)}#mobnav > summary::-webkit-details-marker{display:none}#mobnav > summary::after{content:" ▾";color:var(--text-3)}#mobnav[open] > summary::after{content:" ▴"}.rail nav{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));padding-top:8px}}@media (max-width:500px){table.t2{min-width:0}table.t2 thead{display:none}table.t2 tr{display:block;border-bottom:1px solid var(--rule)}table.t2 tr:last-child{border-bottom:0}table.t2 td{display:block;border:0;padding:9px 14px 0}table.t2 td:last-child{padding-bottom:11px}}@media print{.rail,.otp,.pagenav,.copy,.railtools,.results,.sttoggle,details.otp-inline{display:none !important}.shell{display:block;max-width:none;padding:0}main{padding:0}.js .page:not(.on){display:none !important}body{background:#fff;color:#000;font-size:10.5pt}.q,.cmp,.panel,.note,.code1,.cbox,table{break-inside:avoid}h2,h3{break-after:avoid}pre{white-space:pre-wrap;word-break:break-word}.tw{overflow:visible}table{min-width:0}a{color:#000;text-decoration:none}}</style>
 </head>
 <body>
 <div class="shell">
@@ -64,6 +64,7 @@
 <a href="#p28" data-p="p28"><span class="num">XXVIII</span><span>Mock Loops</span><span class="seen">✓</span></a>
 <a href="#p29" data-p="p29"><span class="num">XXIX</span><span>Follow-Up Trees</span><span class="seen">✓</span></a>
 <a href="#p30" data-p="p30"><span class="num">XXX</span><span>Cheat Sheets</span><span class="seen">✓</span></a>
+<a href="#p31" data-p="p31"><span class="num">XXXI</span><span>Best Practices</span><span class="seen">✓</span></a>
 </nav>
 </details>
 </aside>
@@ -74,9 +75,9 @@
 <h1>The Staff Android Interview: <em>depth, trade-offs, and scale</em></h1>
 <p class="deck">A book-length preparation guide for engineers interviewing at Staff, Senior Staff, Principal, and Mobile Architect level — organised around the thing that actually separates those loops from a Senior loop: not harder recall, but defensible judgment under scale, failure, and organisational constraint.</p>
 <div class="stats">
-<div class="stat"><b>30</b><span>Parts</span></div>
+<div class="stat"><b>31</b><span>Parts</span></div>
 <div class="stat"><b>200+</b><span>Graded questions</span></div>
-<div class="stat"><b>120+</b><span>Code comparisons</span></div>
+<div class="stat"><b>135+</b><span>Code comparisons</span></div>
 <div class="stat"><b>18</b><span>System designs</span></div>
 <div class="stat"><b>12</b><span>Mock loops</span></div>
 </div>
@@ -145,6 +146,7 @@
 <a href="#p28" data-p="p28"><span class="rn">Part XXVIII</span><span><span class="tt">Mock Interview Loops</span><span class="td">Complete loops with interviewer scripts, follow-ups, model answers and filled-in scorecards.</span></span></a>
 <a href="#p29" data-p="p29"><span class="rn">Part XXIX</span><span><span class="tt">Follow-Up Trees</span><span class="td">The three-level rule, a fully expanded offline-first tree, and fifty design follow-ups to expect.</span></span></a>
 <a href="#p30" data-p="p30"><span class="rn">Part XXX</span><span><span class="tt">Cheat Sheets &amp; Checklists</span><span class="td">One-page compressions, 100 things to know, the lists you must answer cold, and the last 24 hours.</span></span></a>
+<a href="#p31" data-p="p31"><span class="rn">Part XXXI</span><span><span class="tt">Android Best Practices &amp; Anti-Patterns</span><span class="td">A side-by-side catalogue of Android-specific good and bad practice: lifecycle, background work, permissions, storage, networking, Compose, security, resources.</span></span></a>
 </div>
 <div class="pagenav"><span></span><a class="r" href="#matrix" data-p="matrix"><span class="k">Next</span><span class="t">Competency matrix →</span></a></div>
 </section>
@@ -1208,6 +1210,17 @@ override fun onNewIntent(intent: Intent) {
 </div>
 <h2><span class="cn">Chapter 27</span>Lifecycle, configuration change, and process death</h2>
 <p>There are three tiers of state, and confusing them causes most "it works on my phone" bugs.</p>
+<pre class="mermaid">
+flowchart TD
+  E["Event"] --> R{"What happened?"}
+  R -- "rotation / locale / dark mode" --> CC["Activity destroyed, process alive"]
+  R -- "system reclaims memory" --> PD["Process killed, task record kept"]
+  R -- "user swipes away / force-stop" --> FS["Task cleared"]
+  CC --> K1["ViewModel: kept<br/>SavedStateHandle: kept<br/>disk: kept"]
+  PD --> K2["ViewModel: GONE<br/>SavedStateHandle: restored from Bundle<br/>singletons: reconstructed EMPTY<br/>disk: kept"]
+  FS --> K3["everything in memory gone<br/>saved state discarded<br/>disk: kept"]
+  </pre>
+<p>The middle branch is the one that reaches production: singletons come back empty while the UI assumes they are populated. It is also the branch nobody tests, because it needs the OS to kill a backgrounded process — constant on a low-end device, almost never on a developer's phone.</p>
 <div class="tw"><table>
 <thead><tr><th style="min-width:150px">Mechanism</th><th style="min-width:170px">Survives</th><th>Does not survive</th></tr></thead>
 <tbody>
@@ -1421,6 +1434,21 @@ class DeepLinkResolver(private val allowedHosts: Set&lt;String&gt;) {
 </ol>
 </div>
 <h2><span class="cn">Chapter 34</span>Lifecycle-aware collection</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant UI as Composable / Fragment
+  participant L as Lifecycle
+  participant VM as ViewModel StateFlow
+  participant R as Repository (upstream)
+  UI->>L: repeatOnLifecycle(STARTED)
+  L->>VM: collect starts
+  VM->>R: subscriptionCount 0 → 1, upstream starts
+  Note over UI,R: user backgrounds the app
+  L-->>VM: STOP → block cancelled, collector gone
+  VM-->>R: WhileSubscribed(5s) grace, then upstream stops
+  Note over UI,R: rotation instead: STOP then START inside 5s
+  L->>VM: collect restarts, cached value replayed, no refetch
+  </pre>
 <p>The single most consequential Jetpack detail: a coroutine launched in <code>lifecycleScope</code> is cancelled only at <code>onDestroy</code>. A flow collected there keeps running while the app is backgrounded — updating a UI nobody sees, holding a socket open, draining battery.</p>
 <div class="cmp">
 <div class="cbox no"><div class="lab">Avoid — collection that runs in the background</div><pre>lifecycleScope.launch {
@@ -1726,6 +1754,17 @@ fun Screen(
 </div>
 <div class="note"><span class="lab">Strong skipping — what changed</span><p>With strong skipping mode (default from Compose 1.3.x-era compiler releases onward and standard in current toolchains), composables with unstable parameters become skippable using <em>instance equality</em> for unstable types, and lambdas are automatically remembered. This removes most of the manual <code>@Stable</code> work. Two things it does not remove: unstable types still compare by reference, so a newly-allocated equal object still triggers recomposition; and it does not fix a <code>List</code> you mutate in place. The L4 answer notes that strong skipping reduces the tax but does not make stability irrelevant — you still model state as immutable values.</p></div>
 <h2><span class="cn">Chapter 43</span>State hoisting and screen architecture</h2>
+<pre class="mermaid">
+flowchart TD
+  VM["CartViewModel"] -- "StateFlow&lt;CartUiState&gt;" --> R["CartRoute — stateful"]
+  VM -- "Channel&lt;CartEvent&gt;" --> R
+  R -- "state: CartUiState" --> S["CartScreen — stateless"]
+  S -- "onIntent(CartIntent)" --> R
+  R -- "viewModel::onIntent" --> VM
+  S --> P["@Preview"]
+  S --> T["Screenshot test"]
+  </pre>
+<p>The split exists so the two boxes on the right are reachable: a stateless screen can be rendered from a hand-built state with no ViewModel, DI or navigation, which is the only affordable way to cover 200 screens' visual states.</p>
 <div class="code1"><div class="lab">The screen contract that scales across 200 screens</div><pre>// 1. State: immutable, exhaustive, no events inside.
 @Immutable
 data class CartUiState(
@@ -1762,6 +1801,16 @@ fun CartScreen(
 <p>Legitimate uses: theme, typography, density, a locale-aware formatter — things that are ambient, rarely change, and would pollute every signature. Illegitimate: passing a ViewModel, a repository, or screen data. The test: if a reader of the composable would be surprised that the value can change the output, it should be a parameter. Implicit data flow is the thing Compose's model exists to remove.</p>
 <h2><span class="cn">Chapter 44</span>The three phases: composition, layout, drawing</h2>
 <p>Each frame runs up to three phases. State read in a <em>later</em> phase does not invalidate the earlier ones — which is the single highest-leverage Compose performance technique.</p>
+<pre class="mermaid">
+flowchart LR
+  S["State change"] --> C["Composition<br/>what to show"]
+  C --> L["Layout<br/>measure &amp; place"]
+  L --> D["Drawing<br/>render commands"]
+  D --> F["Frame"]
+  S -. "read in Modifier.offset { }" .-> L
+  S -. "read in graphicsLayer { }" .-> D
+  </pre>
+<p>The dotted paths are the point: a state value read inside a lambda-taking modifier is read <em>during</em> layout or draw, so a change to it re-runs only that phase. The same value read in the composable body invalidates all three.</p>
 <div class="cmp">
 <div class="cbox no"><div class="lab">Avoid — reading scroll state in composition</div><pre>val offset = scrollState.firstVisibleItemScrollOffset
 
@@ -2144,6 +2193,19 @@ dependencies {
 </div>
 <h2><span class="cn">Chapter 56</span>Breaking cycles: feature-to-feature navigation</h2>
 <p>The recurring problem: <code>:feature:cart</code> must open a product detail owned by <code>:feature:catalog</code>, and <code>:feature:catalog</code> must open the cart. A direct dependency in both directions is a cycle Gradle refuses.</p>
+<pre class="mermaid">
+flowchart TD
+  subgraph BAD["cycle — Gradle refuses"]
+    C1[":feature:cart"] --> C2[":feature:catalog"]
+    C2 --> C1
+  end
+  subgraph GOOD["contract owned by nobody's team"]
+    A[":app — the only module that knows both"] --> D1[":feature:cart"]
+    A --> D2[":feature:catalog"]
+    D1 --> NAV[":core:navigation-api<br/>sealed Dest, interface Navigator"]
+    D2 --> NAV
+  end
+  </pre>
 <div class="cmp">
 <div class="cbox no"><div class="lab">Avoid — the "shared" escape hatch</div><pre>// Everyone depends on :core:shared, which grows to
 // hold ProductScreen, CartScreen, the analytics client,
@@ -2333,6 +2395,20 @@ plugins { id("myapp.android.feature") }</pre>
 </table></div>
 <h2><span class="cn">Chapter 63</span>Auth, token refresh, and single-flight coordination</h2>
 <p>The most-asked networking scenario at Staff level: <em>a token expires while five requests are in flight — design a solution that produces one refresh, not five.</em> It is asked because the naive implementation is both obvious and wrong, and because the failure mode (users randomly logged out) is one most candidates have actually seen without diagnosing.</p>
+<pre class="mermaid">
+sequenceDiagram
+  participant A as Request A
+  participant B as Requests B–E
+  participant Au as Authenticator (Mutex)
+  participant S as Auth server
+  A->>Au: 401, stale = T0
+  B->>Au: 401, stale = T0 (queued on the mutex)
+  Au->>S: refresh(T0) — one call only
+  S-->>Au: T1
+  Au-->>A: retry with T1
+  Note over Au,B: B–E enter the lock, see stored != T0
+  Au-->>B: retry with T1, no second refresh
+  </pre>
 <div class="cmp">
 <div class="cbox no"><div class="lab">Avoid — refresh in an interceptor</div><pre>class AuthInterceptor(...) : Interceptor {
     override fun intercept(chain: Chain): Response {
@@ -2530,6 +2606,15 @@ room { schemaDirectory("$projectDir/schemas") }
 <tr><td>Version/ETag</td><td>Revalidate cheaply, 304 if unchanged</td><td>Saves bandwidth, not round trips. Good pairing with a longer TTL.</td></tr>
 </tbody>
 </table></div>
+<pre class="mermaid">
+flowchart LR
+  UI["UI"] -- observes --> DB[("Room — source of truth")]
+  API["Network"] -- writes --> DB
+  HTTP["OkHttp cache"] -. "revalidation bytes only" .- API
+  MEM["Bounded memory cache"] -- derived from --> DB
+  UI -. "never reads" .-x API
+  </pre>
+<p>The rule that makes this coherent: <strong>the network never returns data to the UI.</strong> It writes to the store, and the UI observes the store. Each tier then has one job — truth, bandwidth, speed — instead of three tiers competing to answer the same question.</p>
 <div class="cmp">
 <div class="cbox no"><div class="lab">Avoid — the three-cache problem</div><pre>// Memory map in the repository (never bounded, never invalidated)
 // + OkHttp disk cache (its own TTL from server headers)
@@ -2653,6 +2738,17 @@ val bmp = BitmapFactory.decodeFile(path, opts)   // ~0.2 MB</pre>
 </tbody>
 </table></div>
 <h2><span class="cn">Chapter 71</span>App startup</h2>
+<pre class="mermaid">
+flowchart LR
+  Z["zygote fork"] --> AC["Application.onCreate<br/>tier 1 only"]
+  AC --> ACT["Activity onCreate"]
+  ACT --> M["measure / layout / draw"]
+  M --> TTID["TTID — first frame"]
+  TTID --> DATA["data arrives"]
+  DATA --> TTFD["TTFD — reportFullyDrawn()"]
+  AC -. "tier 2: appScope, off the critical path" .-> BG["Analytics, experiments"]
+  ACT -. "tier 3: by lazy, on first use" .-> LZ["Ads, maps, video"]
+  </pre>
 <p><strong>Cold</strong> = process creation + Application + first Activity + first frame. <strong>Warm</strong> = process alive, activity recreated. <strong>Hot</strong> = activity resumed. Only cold start is worth optimising as a programme; it correlates with install-day retention and is the one users notice.</p>
 <p>Two metrics: <strong>TTID</strong> (time to initial display — first frame drawn) and <strong>TTFD</strong> (time to full display — content actually usable). Optimising TTID alone produces the cheat of drawing an empty skeleton fast; report both, and call <code>reportFullyDrawn()</code> so TTFD is measurable.</p>
 <div class="cmp">
@@ -2831,6 +2927,20 @@ try { doSync() } finally { if (wakeLock.isHeld) wakeLock.release() }</pre>
 <li><strong>GC pauses cause jank</strong> when they land inside a frame. Per-frame allocation in a scrolling list is the usual source.</li>
 </ul>
 <h2><span class="cn">Chapter 78</span>Leak topology</h2>
+<pre class="mermaid">
+flowchart LR
+  GC(["GC root"]) --> ST["static / object / companion"]
+  GC --> TH["live thread, Handler queue"]
+  GC --> SVC["service, app-scoped coroutine"]
+  ST --> LST["listener list in a singleton"]
+  LST --> VM2["ViewModel or Fragment"]
+  TH --> RUN["delayed Runnable"]
+  RUN --> V["View"]
+  V --> ACT["Activity"]
+  ACT --> TREE["whole view hierarchy — megabytes"]
+  VM2 --> ACT
+  </pre>
+<p>Read it right to left: anything still reachable from a GC root cannot be collected. Every fix cuts exactly one edge — unregister the listener, cancel the Runnable, null the binding — and none of them involve nulling the Activity.</p>
 <p>Every leak is the same shape: <strong>a long-lived object holds a reference to a short-lived one.</strong> Learning the six common paths lets you spot them in review rather than in a heap dump.</p>
 <div class="tw"><table>
 <thead><tr><th style="min-width:160px">Path</th><th style="min-width:200px">Mechanism</th><th>Structural fix</th></tr></thead>
@@ -3116,6 +3226,15 @@ class MainDispatcherRule(
 </div>
 <p><strong>The <code>StateFlow</code>/Turbine gotcha</strong> worth knowing: a <code>StateFlow</code> created with <code>WhileSubscribed</code> does not start until collected, so a test that reads <code>.value</code> without collecting sees only the initial value and appears broken. Inside <code>.test { }</code> the collection exists, which is one reason Turbine is the standard tool rather than a convenience.</p>
 <h2><span class="cn">Chapter 84</span>UI, screenshot, and end-to-end tests</h2>
+<pre class="mermaid">
+flowchart TD
+  E2E["End-to-end · minutes · highest flake<br/>a handful of revenue-critical journeys"]
+  UIT["UI + screenshot · seconds · on device<br/>screen states across theme, locale, font scale"]
+  INT["Integration · tens of ms · Robolectric<br/>repository + DAO + mappers, with fakes"]
+  UNIT["Unit · milliseconds · JVM<br/>domain rules, reducers, state holders"]
+  E2E --- UIT --- INT --- UNIT
+  </pre>
+<p>The ordering is economic, not moral: value is confidence bought divided by authoring plus maintenance plus flake, and that ratio collapses as you climb. Which is why the top tier is a few journeys rather than a suite.</p>
 <div class="tw"><table>
 <thead><tr><th style="min-width:150px">Layer</th><th style="min-width:120px">Runtime</th><th>Buys / costs</th></tr></thead>
 <tbody>
@@ -3267,6 +3386,14 @@ android {
 </ol>
 </div>
 <h2><span class="cn">Chapter 90</span>Pipelines and static analysis</h2>
+<pre class="mermaid">
+flowchart LR
+  L["Local pre-commit<br/>seconds — format only"] --> PR["Pre-merge<br/>&lt;10 min — compile, lint,<br/>affected-module tests, size diff"]
+  PR --> PM["Post-merge<br/>&lt;30 min — full unit suite,<br/>smoke tests, benchmarks"]
+  PM --> N["Nightly<br/>hours — E2E, screenshots,<br/>device matrix, dep audit"]
+  N --> REL["Release<br/>signed bundle, mapping upload,<br/>baseline profile, staged rollout"]
+  </pre>
+<p>The budgets are the design. Anything slower than about ten minutes pre-merge gets routed around — engineers batch changes into larger pull requests, which are harder to review, which costs more quality than the extra checks bought.</p>
 <div class="tw"><table>
 <thead><tr><th style="min-width:130px">Stage</th><th style="min-width:130px">Budget</th><th>Contains</th></tr></thead>
 <tbody>
@@ -3382,6 +3509,22 @@ fun encrypt(plain: ByteArray): Pair&lt;ByteArray, ByteArray&gt; {
 <p class="why"><code>setInvalidatedByBiometricEnrollment</code> is the line most implementations miss: without it, an attacker who can add a fingerprint gains access to the key. And IV reuse under GCM is a catastrophic, silent break.</p></div>
 </div>
 <h2><span class="cn">Chapter 94</span>Identity: OAuth2, tokens, biometrics</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant App
+  participant CT as Custom Tab
+  participant IdP as Identity provider
+  participant API
+  App->>App: generate code_verifier, derive challenge
+  App->>CT: authorize?code_challenge=…&S256
+  CT->>IdP: user authenticates (App never sees credentials)
+  IdP-->>App: redirect with authorization code
+  App->>IdP: token(code, code_verifier) — no client secret
+  IdP-->>App: short access token + rotating refresh token
+  App->>App: store refresh token under a Keystore key
+  App->>API: Bearer access token
+  Note over App,IdP: refresh reuse detected ⇒ IdP revokes the whole family
+  </pre>
 <p>The correct mobile flow is <strong>Authorization Code with PKCE</strong>, in a Custom Tab — not an embedded WebView. The reasons matter in interviews: an embedded WebView means your app can read the user's credentials (so an identity provider cannot trust you, and increasingly blocks it), it does not share the system's session, and users cannot verify the URL bar to detect phishing.</p>
 <div class="tw"><table>
 <thead><tr><th style="min-width:150px">Decision</th><th>Right answer</th><th>Reasoning</th></tr></thead>
@@ -3581,6 +3724,20 @@ flowchart TD
 <p><strong>Cart consistency:</strong> local-first with server reconciliation. The cart is a local draft; validation (item availability, price, minimum order) happens server-side at checkout and returns a structured diff the UI explains, rather than a generic failure.</p>
 <p><strong>Follow-ups:</strong> "Restaurant goes offline with an order in flight" — the order state machine has an explicit <code>RestaurantUnresponsive</code> state with a timeout and an auto-refund path; do not leave it in <code>Preparing</code> forever. "Courier tracking when the app is backgrounded?" — push-driven state, socket only while the tracking screen is visible.</p>
 <h2><span class="cn">Chapter 102</span>Design: chat and messaging</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant DB as Local DB (truth)
+  participant Q as Outbox
+  participant S as Server
+  U->>DB: insert local_id, state = pending
+  DB-->>U: message visible immediately, clock icon
+  Q->>S: send(local_id, body)
+  S-->>Q: ack(local_id → server_id, server_seq)
+  Q->>DB: state = sent, re-sort by server_seq
+  Note over S,DB: socket broadcast of the same message arrives
+  S-->>DB: upsert keyed by local_id — collapses, no duplicate row
+  </pre>
 <p><strong>Dominant constraints:</strong> message ordering, exactly-once display, offline send, and multi-device convergence.</p>
 <div class="code1"><div class="lab">On-device schema — the part interviewers most want to see</div><pre>messages(
   local_id      TEXT PRIMARY KEY,   -- client UUID, created at send time
@@ -3717,6 +3874,25 @@ fun switchAccount(to: AccountId) {
 <li><strong>Audit:</strong> security-relevant client events (device change, biometric enrolment change, failed auth) reported server-side, because the client's own log is not trustworthy evidence.</li>
 </ul>
 <h2><span class="cn">Chapter 113</span>Design: payments</h2>
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> Draft
+  Draft --> Committed: user confirms — key generated and PERSISTED
+  Committed --> Submitted: POST with Idempotency-Key
+  Submitted --> Succeeded: 2xx
+  Submitted --> Failed: 4xx, deterministic
+  Submitted --> Unknown: timeout / no response / process death
+  Unknown --> Submitted: retry, same key
+  Unknown --> Succeeded: reconciliation says it landed
+  Unknown --> Failed: reconciliation says it did not
+  Succeeded --> [*]
+  Failed --> [*]
+  note right of Unknown
+    UI shows "processing", never "failed".
+    Showing failure here is what makes
+    users pay twice.
+  end note
+  </pre>
 <p>This is Chapter 63's idempotency problem as a full design. <strong>The core state machine:</strong> <code>Draft → Committed(key persisted) → Submitted → Unknown | Succeeded | Failed</code>, where <code>Unknown</code> is a first-class state rather than an error.</p>
 <div class="code1"><div class="lab">The rule that prevents double charges</div><pre>// 1. Key is created when the USER commits, persisted BEFORE the call.
 val op = PendingPayment(
@@ -3834,6 +4010,21 @@ do {
 <h4>Tombstones</h4>
 <p>Deletions must be synced as explicit tombstone records. Without them, a client that was offline during a deletion never learns about it and the row lives forever — which presents as "deleted items keep coming back," one of the most reported sync bugs. Tombstones need a retention window agreed with the backend, and a client that has been offline longer than that window must perform a full resync rather than a delta.</p>
 <h2><span class="cn">Chapter 120</span>Conflict resolution</h2>
+<pre class="mermaid">
+sequenceDiagram
+  participant A as Device A (offline)
+  participant S as Server
+  participant B as Device B (offline)
+  Note over A,B: both hold base version 7
+  A->>S: PATCH note 42, version 7
+  S-->>A: 200, now version 8
+  B->>S: PATCH note 42, version 7
+  S-->>B: 409 VERSION_CONFLICT + current record (v8)
+  Note over B: resolve by the TYPE's policy —<br/>LWW, per-field merge, server wins,<br/>or keep both as a conflict copy
+  B->>S: PATCH note 42, version 8
+  S-->>B: 200, now version 9
+  </pre>
+<p>Device B needs three things to merge rather than overwrite: its local edit, the server's current record, and the <em>base</em> it started from. Clients that keep only the first two can overwrite but can never merge.</p>
 <div class="tw"><table>
 <thead><tr><th style="min-width:150px">Strategy</th><th>How it works</th><th>Right for / wrong for</th></tr></thead>
 <tbody>
@@ -4069,6 +4260,17 @@ viewModelScope.launch {
 <tr><td>Recovery time</td><td>Minutes</td><td>Hours (flag) to days (release), and never 100% of users</td></tr>
 </tbody>
 </table></div>
+<pre class="mermaid">
+flowchart LR
+  D["Detect<br/>Vitals, Crashlytics, support"] --> T["Triage<br/>severity, blast radius, is it us?"]
+  T --> M1["Halt the rollout<br/>seconds, free, reversible"]
+  M1 --> M2["Kill switch / remote config<br/>minutes"]
+  M2 --> M3["Server-side fix<br/>hours"]
+  M3 --> M4["Forward hotfix<br/>days, never reaches everyone"]
+  M4 --> P["Blameless postmortem<br/>fix the class, not the instance"]
+  T -. "not us: OS or Play Services rollout" .-> W["Watch and communicate"]
+  </pre>
+<p>The order matters and it is the opposite of a server incident: the cheapest, most reversible mitigation is first, and the code fix is last because it is the slowest and never reaches 100% of users.</p>
 <p><strong>Severity, defined before you need it:</strong> SEV1 — data loss, security exposure, or a core flow broken for a large cohort. SEV2 — significant degradation with a workaround. SEV3 — contained, non-blocking. Publish the definitions, because arguing about severity during an incident is how thirty minutes disappear.</p>
 <div class="note"><span class="lab">Roles worth naming</span><p>Incident commander (decides, does not debug), communications lead (updates stakeholders on a fixed cadence), and investigators. A Staff engineer in an incident is usually the commander, and the most common failure is that they get absorbed into debugging and stop coordinating.</p></div>
 <h2><span class="cn">Chapter 129</span>Twelve incidents</h2>
@@ -4349,6 +4551,18 @@ class SyncQueue(
 <p><strong>Design points to say aloud:</strong> the row ID <em>is</em> the idempotency key, so a replay after process death is safe; <code>InFlight</code> must be recoverable — on startup, reset stale <code>InFlight</code> rows to <code>Pending</code>, because a crash mid-request leaves them stranded; draining stops on the first retryable failure to preserve ordering when operations are dependent (if they are independent, you can parallelise, and you should say which assumption you made); and a permanently-failed operation must be <em>visible to the user</em>, not retried forever or silently dropped.</p>
 <p><strong>Follow-ups:</strong> "How do you handle operations that depend on each other?" — either FIFO with stop-on-failure as here, or an explicit dependency field. "What if the payload references a local ID the server has not seen?" — ID mapping: when the create succeeds, rewrite queued operations that reference the local ID with the server's. That is a real and commonly-missed requirement.</p>
 <h2><span class="cn">Chapter 137</span>Problem: a typed state machine</h2>
+<pre class="mermaid">
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Loading: Search(q) / Fetch(q)
+  Loading --> Ready: Loaded(items)
+  Loading --> Failed: Errored(retryable)
+  Loading --> Loading: Search(q2) / Fetch(q2)
+  Failed --> Loading: Retry / Fetch(q)
+  Failed --> Loading: Search(q2) / Fetch(q2)
+  Ready --> Loading: Search(q2) / Fetch(q2)
+  </pre>
+<p>Every edge is one line of the reducer, and every edge is one unit test with no coroutines, no mocks and no clock. Events with no edge from the current state are ignored rather than crashing — which is what makes a stale <code>Loaded</code> from a superseded query harmless.</p>
 <div class="code1"><div class="lab">Pure, exhaustive, trivially testable</div><pre>sealed interface State {
     data object Idle : State
     data class Loading(val query: String) : State
@@ -4732,6 +4946,21 @@ class UserRepository @Inject constructor(private val api: Api) {
 <div class="q">
 <p class="qt">Architecture 3</p>
 <p class="qh">"Every feature depends on :core, and :core has 200 files"</p>
+<pre class="mermaid">
+flowchart LR
+  subgraph BEFORE["before — one edit rebuilds everything"]
+    F1[":feature:a"] --> C1[":core (200 files, no owner)"]
+    F2[":feature:b"] --> C1
+    F3[":feature:c"] --> C1
+  end
+  subgraph AFTER["after — split by capability, one owner each"]
+    G1[":feature:a"] --> N[":core:network"]
+    G1 --> DS[":core:designsystem"]
+    G2[":feature:b"] --> DS
+    G2 --> DB[":core:database"]
+    G3[":feature:c"] --> N
+  end
+    </pre>
 <p><strong>What breaks:</strong> any change to <code>:core</code> recompiles the whole app — the single biggest build-time cost in most large Android codebases; every team edits it, so it is a permanent conflict surface; it has no owner; and it accumulates unrelated things because "shared" is not a criterion.</p>
 <p><strong>Change:</strong> split by <em>capability</em>, not by layer: <code>:core:network</code>, <code>:core:database</code>, <code>:core:designsystem</code>, <code>:core:analytics-api</code>. Each with one owner. Anything used by fewer than three modules moves to its actual consumer.</p>
 <p><strong>Migration:</strong> measure first — which <code>:core</code> files actually change often, and which are on the critical build path. Extract the highest-churn, widest-dependency pieces first. Do it incrementally; a big-bang split of <code>:core</code> conflicts with every in-flight PR in the company.</p>
@@ -6311,7 +6540,356 @@ Security           the client is hostile territory; enforce server-side
 </ul>
 </div>
 <div class="note"><span class="lab">A closing note</span><p>The material in this book will not, by itself, get you the offer. What gets the offer is the habit it is built around: naming the constraint, choosing with a stated criterion, saying what would change your mind, and knowing how you would find out you were wrong. Interviewers can tell within two questions whether that habit is real. Practise it out loud until it is.</p></div>
-<div class="pagenav"><a href="#p29" data-p="p29"><span class="k">Previous</span><span class="t">← Part XXIX</span></a><a class="r" href="#home" data-p="home"><span class="k">Back to</span><span class="t">Contents →</span></a></div>
+<div class="pagenav"><a href="#p29" data-p="p29"><span class="k">Previous</span><span class="t">← Part XXIX</span></a><a class="r" href="#p31" data-p="p31"><span class="k">Next</span><span class="t">Part XXXI — Best Practices →</span></a></div>
+</section>
+<section class="page" id="p31">
+<header class="phead">
+<p class="eyebrow">Part XXXI</p>
+<h1>Android Best Practices &amp; <em>Anti-Patterns</em></h1>
+<p class="deck">A side-by-side catalogue of the Android-specific patterns that separate code that works on your phone from code that survives a million devices. Every pair is a defect that has shipped, not a style preference.</p>
+</header>
+<div class="note"><span class="lab">How to read this part</span><p>The left column is not strawman code — it is what reasonable engineers write under deadline, and most of it passes review. What makes each one wrong is a failure mode that only appears under a condition your development device rarely reproduces: process death, a slow network, a revoked permission, an OEM battery optimiser, or a hundred thousand rows. The <em>why</em> line under each pair is the interview answer.</p></div>
+<h2><span class="cn">Chapter 180</span>Lifecycle and context</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — work keyed to the wrong lifecycle</div><pre>class MapFragment : Fragment() {
+    override fun onCreateView(...): View {
+        viewLifecycleOwner // available…
+        lifecycleScope.launch {          // …but not used
+            locationRepo.updates().collect { drawPin(it) }
+        }
+        return binding.root
+    }
+}</pre>
+<p class="why"><code>lifecycleScope</code> on a Fragment lives until <code>onDestroy</code>, but the <em>view</em> dies at <code>onDestroyView</code> — which happens every time the fragment goes on the back stack. The collector keeps drawing into a destroyed view hierarchy: a leak plus an <code>IllegalStateException</code> when the binding is gone.</p></div>
+<div class="cbox yes"><div class="lab">Practice — scope to the view, not the fragment</div><pre>override fun onViewCreated(v: View, s: Bundle?) {
+    viewLifecycleOwner.lifecycleScope.launch {
+        viewLifecycleOwner.repeatOnLifecycle(STARTED) {
+            locationRepo.updates().collect { drawPin(it) }
+        }
+    }
+}</pre>
+<p class="why">Two different lifetimes exist in a Fragment and they differ by a whole back-stack traversal. <code>viewLifecycleOwner</code> plus <code>repeatOnLifecycle</code> tears the collector <em>and</em> the upstream down when the view goes away.</p></div>
+</div>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — state that cannot survive a kill</div><pre>class SessionManager {
+    var currentUser: User? = null       // set at login
+    val isLoggedIn get() = currentUser != null
+}
+
+// Screen assumes it is populated:
+if (session.isLoggedIn) showDashboard() else showLogin()</pre>
+<p class="why">After process death the singleton is reconstructed with <code>currentUser = null</code> while the task record is restored, so the user returns from Recents and is silently logged out. Reproduces constantly on low-end devices and almost never on a developer's phone.</p></div>
+<div class="cbox yes"><div class="lab">Practice — persisted, observable session</div><pre>class SessionRepository(private val store: DataStore&lt;Prefs&gt;) {
+    val session: Flow&lt;Session?&gt; = store.data
+        .map { it[USER_JSON]?.let(::decodeSession) }
+
+    suspend fun signIn(s: Session) = store.edit { it[USER_JSON] = encode(s) }
+    suspend fun signOut() = store.edit { it.remove(USER_JSON) }
+}</pre>
+<p class="why">The test: <em>if this value vanished right now, would the app misbehave?</em> If yes it belongs on disk, observed — not in a field. Verify with <code>adb shell am kill</code>, not by rotating.</p></div>
+</div>
+<h2><span class="cn">Chapter 181</span>Background work</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — durability by optimism</div><pre>fun submitReview(review: Review) {
+    appScope.launch {
+        api.postReview(review)          // no retry, no persistence
+        toast("Thanks for your review!")
+    }
+}</pre>
+<p class="why">Three defects. The coroutine dies with the process, so a review composed on a train is silently lost. A transient 503 discards it. And the toast fires from a scope that outlives the screen, so it can appear over an unrelated part of the app — or crash if the Activity is gone.</p></div>
+<div class="cbox yes"><div class="lab">Practice — persist first, then sync</div><pre>suspend fun submitReview(review: Review) {
+    val id = outbox.enqueue(                 // durable, idempotency key
+        Operation(id = UUID.randomUUID().toString(), payload = review)
+    )
+    SyncWorker.enqueueUnique(context)        // constraints + backoff
+}
+// The UI observes the outbox row and shows pending → sent → failed.</pre>
+<p class="why">Anything the user believes is saved must reach disk before the network is attempted. WorkManager then guarantees it eventually runs across process death and reboot — and the idempotency key means the retry cannot create a second review.</p></div>
+</div>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — polling on a timer</div><pre>PeriodicWorkRequestBuilder&lt;SyncWorker&gt;(15, MINUTES).build()
+    .let { wm.enqueue(it) }        // duplicated every launch
+
+// inside the worker:
+wakeLock.acquire()
+sync()                              // may throw
+wakeLock.release()                  // unreachable on failure</pre>
+<p class="why">Every launch enqueues another worker, so they race and multiply. The wakelock leaks on the error path and holds the CPU awake indefinitely. This is the shape of "battery consumption doubled after the release".</p></div>
+<div class="cbox yes"><div class="lab">Practice — push-triggered, unique, bounded</div><pre>wm.enqueueUniquePeriodicWork(
+    "sync", ExistingPeriodicWorkPolicy.KEEP,
+    PeriodicWorkRequestBuilder&lt;SyncWorker&gt;(6, HOURS)
+        .setConstraints(Constraints(
+            requiredNetworkType = NetworkType.UNMETERED,
+            requiresBatteryNotLow = true))
+        .build())
+
+wakeLock.acquire(30_000)                    // hard timeout
+try { sync() } finally { if (wakeLock.isHeld) wakeLock.release() }</pre>
+<p class="why">Server push is the trigger; periodic work is the safety net, not the mechanism. Unique work makes re-enqueueing idempotent, and a timeout means a crash cannot leave the CPU held.</p></div>
+</div>
+<h2><span class="cn">Chapter 182</span>Permissions and privacy</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — ask at launch, assume forever</div><pre>override fun onCreate(s: Bundle?) {
+    requestPermissions(arrayOf(CAMERA, ACCESS_FINE_LOCATION,
+        READ_EXTERNAL_STORAGE, POST_NOTIFICATIONS), 42)
+}
+
+fun takePhoto() = camera.capture()   // assumes CAMERA is granted</pre>
+<p class="why">A wall of prompts before the user knows what the app does produces the worst grant rates in the industry. Worse, permissions are revocable at any time — including while backgrounded — so an assumed grant is a <code>SecurityException</code> waiting for a user who changed their mind.</p></div>
+<div class="cbox yes"><div class="lab">Practice — in context, and always re-checked</div><pre>val camera = rememberLauncherForActivityResult(RequestPermission()) { granted -&gt;
+    if (granted) vm.onCameraReady() else vm.onCameraDenied()
+}
+
+fun onAddPhotoClicked() = when {
+    hasPermission(CAMERA) -&gt; openCamera()          // check every time
+    shouldShowRationale(CAMERA) -&gt; showWhyWeNeedIt()
+    else -&gt; camera.launch(CAMERA)
+}</pre>
+<p class="why">Ask at the moment the value is obvious — when the user taps "Add photo". Every permission-gated call needs a not-granted-right-now branch, not just a request flow. And prefer the photo picker or <code>ACTION_GET_CONTENT</code>, which need no permission at all.</p></div>
+</div>
+<h2><span class="cn">Chapter 183</span>Notifications, intents and deep links</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — untrusted link, mutable intent</div><pre>val pi = PendingIntent.getActivity(ctx, 0,
+    Intent(ACTION_OPEN), PendingIntent.FLAG_MUTABLE)
+
+// deep link handler
+val url = intent.data?.getQueryParameter("next")
+webView.loadUrl(url!!)                    // whatever the link says</pre>
+<p class="why">A mutable PendingIntent wrapping an implicit intent lets another app fill it in and have it executed with your identity — intent redirection. And loading an arbitrary <code>next</code> parameter into a WebView is an open redirect: a phishing page rendered inside your app, wearing your branding.</p></div>
+<div class="cbox yes"><div class="lab">Practice — immutable, explicit, allow-listed</div><pre>val pi = PendingIntent.getActivity(ctx, requestCode,
+    Intent(ctx, DetailActivity::class.java).putExtra(EXTRA_ID, id),
+    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+
+// One resolver, unit-testable without an emulator:
+fun resolve(uri: Uri): Route? {
+    if (uri.host !in ALLOWED_HOSTS) return null
+    return ProductId.parse(uri.lastPathSegment)?.let(Route::Product)
+}</pre>
+<p class="why">Deep links are untrusted input from the internet. Validate the host, parse IDs into typed values, and route through one resolver that a JVM test can cover in milliseconds.</p></div>
+</div>
+<h2><span class="cn">Chapter 184</span>Storage and data</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — unbounded query on the main path</div><pre>@Query("SELECT * FROM messages ORDER BY ts DESC")
+fun all(): Flow&lt;List&lt;Message&gt;&gt;          // 80k rows, no index
+
+suspend fun importAll(items: List&lt;Message&gt;) {
+    items.forEach { dao.insert(it) }     // 80k transactions
+}</pre>
+<p class="why">Room invalidates per <em>table</em>, so every write re-runs this query over the whole table and re-maps 80,000 objects — on a hot table that is a permanent CPU load. And per-row inserts mean one fsync each: an import that should take under a second takes a minute.</p></div>
+<div class="cbox yes"><div class="lab">Practice — bounded, indexed, batched</div><pre>@Entity(indices = [Index(value = ["chat_id", "ts"])])
+data class MessageEntity(...)
+
+@Query("SELECT * FROM messages WHERE chat_id = :id " +
+       "ORDER BY ts DESC LIMIT :limit")
+fun page(id: String, limit: Int = 50): Flow&lt;List&lt;Message&gt;&gt;
+
+@Insert(onConflict = REPLACE)
+suspend fun insertAll(items: List&lt;MessageEntity&gt;)   // one transaction</pre>
+<p class="why">The composite index covers both the filter and the sort so SQLite skips the temporary b-tree. Confirm with <code>EXPLAIN QUERY PLAN</code>: "SEARCH … USING INDEX" is what you want, "SCAN TABLE" means you have none.</p></div>
+</div>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — data loss as a migration strategy</div><pre>Room.databaseBuilder(ctx, Db::class.java, "app.db")
+    .fallbackToDestructiveMigration()
+    .build()</pre>
+<p class="why">On the next schema bump this silently deletes everything — including the outbox of writes the user believes were saved. It is a data-loss incident scheduled for whenever someone adds a column.</p></div>
+<div class="cbox yes"><div class="lab">Practice — real migrations, tested against real files</div><pre>.addMigrations(MIGRATION_8_9)
+
+@Test fun migrate_8_to_9_preserves_rows() {
+    helper.createDatabase(TEST_DB, 8).apply {
+        execSQL("INSERT INTO messages VALUES ('m1','hi',1700000000)"); close()
+    }
+    val db = helper.runMigrationsAndValidate(TEST_DB, 9, true, MIGRATION_8_9)
+    db.query("SELECT read FROM messages WHERE id='m1'").use {
+        it.moveToFirst(); assertEquals(0, it.getInt(0))
+    }
+}</pre>
+<p class="why">Every shipped schema version is permanent public API — users skip releases, so version 3 must still reach version 12. Export the schema, commit it, and test every adjacent pair in CI.</p></div>
+</div>
+<h2><span class="cn">Chapter 185</span>Networking</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — retry everything, jitter nothing</div><pre>suspend fun &lt;T&gt; retry(block: suspend () -&gt; T): T {
+    repeat(5) {
+        try { return block() } catch (e: Exception) { delay(1000) }
+    }
+    return block()
+}
+retry { api.placeOrder(cart) }</pre>
+<p class="why">Four separate faults: it retries 4xx, which will never succeed; it swallows <code>CancellationException</code>, breaking structured concurrency; it retries a non-idempotent write with no key, so a post-send timeout double-charges; and with no jitter, a million clients retry in lockstep and turn a brief backend blip into a sustained outage.</p></div>
+<div class="cbox yes"><div class="lab">Practice — classify, jitter, key</div><pre>suspend fun &lt;T&gt; retrying(
+    attempts: Int = 4, baseMs: Long = 300,
+    retryable: (Throwable) -&gt; Boolean, block: suspend () -&gt; T,
+): T {
+    repeat(attempts) { i -&gt;
+        try { return block() }
+        catch (e: CancellationException) { throw e }
+        catch (e: Throwable) {
+            if (!retryable(e) || i == attempts - 1) throw e
+            delay(Random.nextLong(0, min(8_000, baseMs shl i)))  // full jitter
+        }
+    }
+    error("unreachable")
+}
+retrying(retryable = ::isTransient) { api.placeOrder(cart, key = op.id) }</pre>
+<p class="why">Retry connection failures freely; retry a post-send timeout only behind an idempotency key generated at user commit and persisted before the call; never retry a 4xx.</p></div>
+</div>
+<h2><span class="cn">Chapter 186</span>UI and Compose</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — work inside the item body</div><pre>LazyColumn {
+    items(orders) { order -&gt;                       // no key
+        val fmt = SimpleDateFormat("dd MMM", Locale.getDefault())
+        val total = order.lines.sumOf { it.price }  // recomputed per frame
+        Row {
+            Text(fmt.format(order.date))
+            AsyncImage(model = order.thumbUrl)      // unbounded decode
+        }
+    }
+}</pre>
+<p class="why">A formatter allocated per item per frame, a sum recomputed during scroll, and full-resolution bitmap decodes. Without a <code>key</code>, inserting one order at the head shifts every item's remembered state and defeats reuse. This is what "the list is janky but recomposition counts look fine" actually means.</p></div>
+<div class="cbox yes"><div class="lab">Practice — precompute, key, bound</div><pre>// Mapped once, off the main thread, in the state layer:
+data class OrderRow(val id: String, val dateLabel: String,
+                    val totalLabel: String, val thumbUrl: String)
+
+LazyColumn {
+    items(rows, key = { it.id }, contentType = { "order" }) { row -&gt;
+        Row {
+            Text(row.dateLabel)
+            AsyncImage(
+                model = ImageRequest.Builder(ctx).data(row.thumbUrl)
+                    .size(120, 120).build(),
+                modifier = Modifier.size(60.dp))
+        }
+    }
+}</pre>
+<p class="why">The item body should read fields and emit UI — nothing else. Every derivation moves into the state mapping, images decode to display size, and keys let the runtime move slots instead of rebuilding them.</p></div>
+</div>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — events smuggled inside state</div><pre>data class UiState(
+    val items: List&lt;Item&gt; = emptyList(),
+    val navigateTo: Route? = null,      // an event
+    val toast: String? = null,          // another event
+)
+LaunchedEffect(state.navigateTo) {
+    state.navigateTo?.let { nav.navigate(it); vm.clearNav() }
+}</pre>
+<p class="why">Rotation re-emits the state and navigates a second time. Two identical error messages in a row show once, because <code>StateFlow</code> is distinct-until-changed. And every consumer must remember to call a clear method.</p></div>
+<div class="cbox yes"><div class="lab">Practice — state and events are different channels</div><pre>val state: StateFlow&lt;UiState&gt; = ...            // what the screen looks like
+private val _events = Channel&lt;UiEvent&gt;(BUFFERED)
+val events = _events.receiveAsFlow()            // what happens once
+
+LaunchedEffect(Unit) {
+    lifecycle.repeatOnLifecycle(STARTED) {
+        vm.events.collect { e -&gt; when (e) {
+            is Navigate -&gt; nav.navigate(e.route)
+            is ShowSnack -&gt; snackbar.showSnackbar(e.text)
+        } }
+    }
+}</pre>
+<p class="why">The rule: if it should still be true after rotation it is state; if it should happen exactly once it is an event. A <code>Channel</code> delivers once, buffers while stopped, and replays nothing.</p></div>
+</div>
+<h2><span class="cn">Chapter 187</span>Concurrency</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — lost updates and hidden blocking</div><pre>private val _state = MutableStateFlow(UiState())
+
+fun addItem(item: Item) {
+    _state.value = _state.value.copy(items = _state.value.items + item)
+}
+
+fun load() = viewModelScope.launch {
+    val data = api.fetchBlocking()      // blocks Dispatchers.Main
+    _state.value = _state.value.copy(data = data)
+}</pre>
+<p class="why">Read-modify-write on a <code>StateFlow</code> loses updates under concurrency — two callers read the same value and the second write wins. And a blocking call on the default main dispatcher freezes the frame pipeline: dropped frames now, an ANR under a slow network.</p></div>
+<div class="cbox yes"><div class="lab">Practice — atomic updates, main-safety at the source</div><pre>fun addItem(item: Item) =
+    _state.update { it.copy(items = it.items + item) }      // CAS loop
+
+class Repo(private val api: Api, private val io: CoroutineDispatcher) {
+    /** Safe to call from any dispatcher. */
+    suspend fun fetch(): Data = withContext(io) { api.fetchBlocking() }
+}</pre>
+<p class="why"><code>update {}</code> retries on conflict so no write is lost. Main-safety belongs to the function that knows it blocks, with an injected dispatcher so the test can replace it — never as a convention call sites must remember.</p></div>
+</div>
+<h2><span class="cn">Chapter 188</span>Security</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — secrets, logs and a gate that isn't one</div><pre>object Config { const val API_SECRET = "sk_live_9f2b…" }   // in the APK
+
+Log.d(TAG, "auth ok, token=$accessToken")                  // in bug reports
+
+biometricPrompt.authenticate(info)
+override fun onAuthenticationSucceeded(r: AuthResult) {
+    unlocked = true; showBalance()                          // patchable branch
+}</pre>
+<p class="why">A constant in the APK is extractable with <code>strings</code>. Tokens in logcat reach crash breadcrumbs and support bundles. And a biometric check that only flips a boolean is bypassed by patching the branch — nothing cryptographic depends on the result.</p></div>
+<div class="cbox yes"><div class="lab">Practice — server-side authority, hardware-backed keys</div><pre>// No secret ships. The server authorises; the client proves identity.
+
+val cipher = Cipher.getInstance(TRANSFORM).apply {
+    init(Cipher.DECRYPT_MODE, keystoreKey, GCMParameterSpec(128, iv))
+}
+biometricPrompt.authenticate(info, CryptoObject(cipher))
+
+override fun onAuthenticationSucceeded(r: AuthResult) {
+    // usable ONLY because the user authenticated — enforced by hardware
+    val token = r.cryptoObject!!.cipher!!.doFinal(encryptedToken)
+    session.restore(token)
+}</pre>
+<p class="why">The client runs on hardware the attacker controls. Keys live in the Keystore and never enter your process; biometrics unlock a key rather than setting a flag; and every authorisation decision that matters is made by the server.</p></div>
+</div>
+<h2><span class="cn">Chapter 189</span>Resources, configuration and accessibility</h2>
+<div class="cmp">
+<div class="cbox no"><div class="lab">Anti-pattern — hardcoded everything</div><pre>Text("Delivered " + count + " orders")           // not translatable
+Box(Modifier.size(32.dp).clickable { onDelete() }) {
+    Icon(Icons.Default.Delete, contentDescription = null)
+}
+if (screenWidthDp &gt; 600) TwoPane() else OnePane()   // breaks on fold</pre>
+<p class="why">String concatenation cannot be translated or pluralised — word order differs by language. A 32dp target fails the minimum touch size and the icon announces nothing to TalkBack. And a raw width threshold misses that a foldable changes class at runtime, mid-flow.</p></div>
+<div class="cbox yes"><div class="lab">Practice — resources, semantics, size classes</div><pre>Text(pluralStringResource(R.plurals.orders_delivered, count, count))
+
+IconButton(onClick = onDelete,                     // 48dp target, Role.Button
+    modifier = Modifier.semantics {
+        contentDescription = "Delete ${item.name}"
+    }) { Icon(Icons.Default.Delete, contentDescription = null) }
+
+when (windowSizeClass.widthSizeClass) {
+    WindowWidthSizeClass.Expanded -&gt; TwoPane()
+    else -&gt; OnePane()
+}</pre>
+<p class="why">Plurals handle languages with more than two forms. The semantics annotation serves TalkBack and the test at once — a screen that is hard to test is usually inaccessible. And window size classes react to folding and resizing, which fixed thresholds cannot.</p></div>
+</div>
+<h2><span class="cn">Chapter 190</span>The catalogue as a checklist</h2>
+<div class="tw"><table>
+<thead><tr><th style="min-width:150px">Area</th><th>The question to ask in review</th></tr></thead>
+<tbody>
+<tr><td>Lifecycle</td><td>Which lifetime does this work belong to — view, screen, user intent, or the device?</td></tr>
+<tr><td>State</td><td>If the process died right now, would the user lose something they believe was saved?</td></tr>
+<tr><td>Background</td><td>Must this happen eventually, or now and visibly? Is it unique, constrained and backed off?</td></tr>
+<tr><td>Permissions</td><td>Is there a branch for "granted before, revoked since"?</td></tr>
+<tr><td>Intents</td><td>Immutable and explicit? Is every deep-link parameter validated as untrusted input?</td></tr>
+<tr><td>Storage</td><td>Bounded query, covering index, batched write, tested migration?</td></tr>
+<tr><td>Networking</td><td>Which errors are retryable, is there jitter, and is the write idempotent?</td></tr>
+<tr><td>UI</td><td>Any allocation or derivation inside an item body? Keys present? Events out of state?</td></tr>
+<tr><td>Concurrency</td><td>Read-modify-write anywhere? Is main-safety owned by the blocking function?</td></tr>
+<tr><td>Security</td><td>Does anything in the APK need to stay secret? Does a check gate a key or a boolean?</td></tr>
+<tr><td>Resources</td><td>Concatenated strings, fixed touch targets, or hardcoded width thresholds?</td></tr>
+<tr><td>Observability</td><td>If this fails silently in production, which metric moves?</td></tr>
+</tbody>
+</table></div>
+<div class="panel">
+<h4>Part XXXI rapid recall</h4>
+<ul>
+<li><code>viewLifecycleOwner</code> for anything touching the view; <code>repeatOnLifecycle</code> to stop the producer.</li>
+<li>State that matters is persisted and observed, never a field on a singleton.</li>
+<li>Write to disk before the network for anything the user believes is saved.</li>
+<li>Unique work, constraints, backoff, and wakelocks with a timeout in a <code>finally</code>.</li>
+<li>Ask for permissions in context and re-check on every use.</li>
+<li><code>FLAG_IMMUTABLE</code> plus an explicit component; deep links are untrusted input.</li>
+<li>Bounded queries, covering indexes, batched inserts, tested migrations — never destructive.</li>
+<li>Classify errors, jitter the backoff, key the write.</li>
+<li>Nothing derived or allocated in a lazy item body; keys always; events in a channel.</li>
+<li><code>update {}</code> not read-modify-write; main-safety at the blocking function.</li>
+<li>Biometrics unlock a key; the server is the only real authority.</li>
+<li>Plurals, semantics, and window size classes rather than concatenation, 32dp and magic numbers.</li>
+</ul>
+</div>
+<div class="pagenav"><a href="#p30" data-p="p30"><span class="k">Previous</span><span class="t">← Part XXX</span></a><a class="r" href="#home" data-p="home"><span class="k">Back to</span><span class="t">Contents →</span></a></div>
 </section>
 </main>
 <aside class="otp" id="otp" aria-label="On this page"></aside>
@@ -6346,13 +6924,15 @@ Security           the client is hostile territory; enforce server-side
 
   var RX = {
     kotlin: new RegExp(
-      '(/\\*[\\s\\S]*?\\*/|//[^\\n]*)'                                   /* 1 comment */
-      + '|("""[\\s\\S]*?"""|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\')' /* 2 string */
-      + '|(@[A-Za-z_]\\w*)'                                              /* 3 annotation */
-      + '|\\b(fun)(\\s+)([A-Za-z_]\\w*)'                                 /* 4,5,6 fun decl */
-      + '|\\b(' + SOFT.join('|') + ')(\\s+)(' + AFTER_SOFT.join('|') + ')\\b'  /* 7,8,9 soft modifier */
-      + '|\\b(' + KW.join('|') + ')\\b'                                  /* 10 keyword */
-      + '|\\b(\\d[\\d_]*(?:\\.\\d+)?[fFlLuU]?)\\b', 'g'),                /* 11 number */
+      '(/\\*[\\s\\S]*?\\*/)'                                             /* 1 block comment / KDoc */
+      + '|(//[^\\n]*)'                                                   /* 2 line comment */
+      + '|("""[\\s\\S]*?"""|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\')' /* 3 string */
+      + '|((?<![\\w$@])@[A-Za-z_]\\w*)'          /* 4 annotation — not a label like return@launch */
+      + '|\\b(fun)(\\s+)([A-Za-z_]\\w*)'                                 /* 5,6,7 fun decl */
+      + '|\\b(' + SOFT.join('|') + ')(\\s+)(' + AFTER_SOFT.join('|') + ')\\b'  /* 8,9,10 soft modifier */
+      + '|\\b(get|set)(?=\\s*\\()'                                       /* 11 property accessor */
+      + '|\\b(' + KW.join('|') + ')\\b'                                  /* 12 keyword */
+      + '|\\b(\\d[\\d_]*(?:\\.\\d+)?[fFlLuU]?)\\b', 'g'),                /* 13 number */
     xml: new RegExp(
       '(<!--[\\s\\S]*?-->)'                                              /* 1 comment */
       + '|("(?:[^"\\\\]|\\\\.)*")'                                       /* 2 string */
@@ -6371,7 +6951,7 @@ Security           the client is hostile territory; enforce server-side
   };
 
   var MAP = {
-    kotlin: { 1: 'cmt', 2: 'str', 3: 'ann', 10: 'kw', 11: 'num' },
+    kotlin: { 1: 'doc', 2: 'cmt', 3: 'str', 4: 'ann', 11: 'kw', 12: 'kw', 13: 'num' },
     xml:    { 1: 'cmt', 2: 'str', 3: 'tag', 4: 'att' },
     shell:  { 1: 'cmt', 2: 'str', 3: 'att', 4: 'num' },
     json:   { 1: 'cmt', 2: 'str', 3: 'kw',  4: 'num' }
@@ -6394,6 +6974,19 @@ Security           the client is hostile territory; enforce server-side
     return 'text';
   }
 
+  /* A Kotlin string with its `$x` / `${…}` template entries picked out,
+     the way Android Studio renders them. */
+  function tplString(s) {
+    var rx = /\$\{[^}]*\}|\$[A-Za-z_]\w*/g, out = '', last = 0, m;
+    while ((m = rx.exec(s)) !== null) {
+      if (m.index > last) out += esc(s.slice(last, m.index));
+      out += '<span class="tok-tpl">' + esc(m[0]) + '</span>';
+      last = rx.lastIndex;
+    }
+    out += esc(s.slice(last));
+    return '<span class="tok-str">' + out + '</span>';
+  }
+
   function highlight(pre) {
     if (pre.classList.contains('mermaid')) return;
     var text = pre.textContent;
@@ -6407,21 +7000,27 @@ Security           the client is hostile territory; enforce server-side
       if (m.index > last) out += esc(text.slice(last, m.index));
       var handled = false;
       if (lang === 'kotlin') {
-        /* `fun name` — keyword plus declaration name, unless what follows
-           `fun` is itself a keyword (e.g. `fun interface`). */
-        if (m[4]) {
-          var nameCls = KW.indexOf(m[6]) === -1 ? 'tok-fn' : 'tok-kw';
-          out += '<span class="tok-kw">' + esc(m[4]) + '</span>' + esc(m[5])
-               + '<span class="' + nameCls + '">' + esc(m[6]) + '</span>';
+        if (m[3]) {
+          /* String literal: Android Studio colours `$x` and `${…}` template
+             entries separately from the literal text around them. */
+          out += tplString(m[3]);
           handled = true;
-        } else if (m[7]) {
+        } else if (m[5]) {
+          /* `fun name` — keyword plus declaration name, unless what follows
+             `fun` is itself a keyword (e.g. `fun interface`). */
+          var nameCls = KW.indexOf(m[7]) === -1 ? 'tok-fn' : 'tok-kw';
+          out += '<span class="tok-kw">' + esc(m[5]) + '</span>' + esc(m[6])
+               + '<span class="' + nameCls + '">' + esc(m[7]) + '</span>';
+          handled = true;
+        } else if (m[8]) {
           /* soft modifier in modifier position: `data class`, `value class` */
-          out += '<span class="tok-kw">' + esc(m[7]) + '</span>' + esc(m[8])
-               + '<span class="tok-kw">' + esc(m[9]) + '</span>';
+          out += '<span class="tok-kw">' + esc(m[8]) + '</span>' + esc(m[9])
+               + '<span class="tok-kw">' + esc(m[10]) + '</span>';
           handled = true;
-        } else if (m[10] && text.charAt(m.index - 1) === '.') {
-          /* member access — `store.get(…)` is a call, not a keyword */
-          out += esc(m[10]);
+        } else if ((m[11] || m[12]) && text.charAt(m.index - 1) === '.') {
+          /* member access — `provider.get()` is a call, not an accessor
+             or a keyword. Only a bare `get()` / `set(…)` is one. */
+          out += esc(m[11] || m[12]);
           handled = true;
         }
       }
@@ -6548,6 +7147,20 @@ Security           the client is hostile territory; enforce server-side
   ----------------------------------------------------------------*/
   var otpRail = $('#otp');
 
+  /* The rail can be dismissed for a wider reading column; the choice sticks. */
+  var otpShow = document.createElement('button');
+  otpShow.type = 'button';
+  otpShow.className = 'otpshow';
+  otpShow.textContent = 'Chapters';
+  otpShow.title = 'Show the on-this-page panel';
+  otpRail.parentNode.insertBefore(otpShow, otpRail.nextSibling);
+  otpShow.addEventListener('click', function () { setOtp(true); });
+
+  function setOtp(on) {
+    document.documentElement.classList.toggle('otp-off', !on);
+    store.set('sai-otp', on);
+  }
+
   function buildOtp(page) {
     var heads = $$('h2', page);
     otpRail.innerHTML = '';
@@ -6557,7 +7170,9 @@ Security           the client is hostile territory; enforce server-side
 
     var title = function (h) { return h.textContent.replace(/^Chapter \d+/, '').replace(/#$/, '').trim(); };
 
-    otpRail.innerHTML = '<h6>On this page</h6>';
+    otpRail.innerHTML = '<h6>On this page'
+      + '<button type="button" class="otphide" title="Hide this panel for more reading width">Hide</button></h6>';
+    otpRail.querySelector('.otphide').addEventListener('click', function () { setOtp(false); });
     heads.forEach(function (h) {
       var cn = h.querySelector('.cn');
       var a = document.createElement('a');
@@ -6831,6 +7446,7 @@ Security           the client is hostile territory; enforce server-side
   syncNav();
   window.addEventListener('resize', syncNav);
 
+  if (store.get('sai-otp', true) === false) document.documentElement.classList.add('otp-off');
   paintVisited();
   route(location.hash);
   decorateRest();

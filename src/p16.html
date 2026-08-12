@@ -112,6 +112,20 @@ flowchart TD
   <p><strong>Follow-ups:</strong> "Restaurant goes offline with an order in flight" — the order state machine has an explicit <code>RestaurantUnresponsive</code> state with a timeout and an auto-refund path; do not leave it in <code>Preparing</code> forever. "Courier tracking when the app is backgrounded?" — push-driven state, socket only while the tracking screen is visible.</p>
 
   <h2><span class="cn">Chapter 102</span>Design: chat and messaging</h2>
+  <pre class="mermaid">
+sequenceDiagram
+  participant U as User
+  participant DB as Local DB (truth)
+  participant Q as Outbox
+  participant S as Server
+  U->>DB: insert local_id, state = pending
+  DB-->>U: message visible immediately, clock icon
+  Q->>S: send(local_id, body)
+  S-->>Q: ack(local_id → server_id, server_seq)
+  Q->>DB: state = sent, re-sort by server_seq
+  Note over S,DB: socket broadcast of the same message arrives
+  S-->>DB: upsert keyed by local_id — collapses, no duplicate row
+  </pre>
   <p><strong>Dominant constraints:</strong> message ordering, exactly-once display, offline send, and multi-device convergence.</p>
   <div class="code1"><div class="lab">On-device schema — the part interviewers most want to see</div><pre>messages(
   local_id      TEXT PRIMARY KEY,   -- client UUID, created at send time
@@ -280,6 +294,25 @@ fun switchAccount(to: AccountId) {
   </ul>
 
   <h2><span class="cn">Chapter 113</span>Design: payments</h2>
+  <pre class="mermaid">
+stateDiagram-v2
+  [*] --> Draft
+  Draft --> Committed: user confirms — key generated and PERSISTED
+  Committed --> Submitted: POST with Idempotency-Key
+  Submitted --> Succeeded: 2xx
+  Submitted --> Failed: 4xx, deterministic
+  Submitted --> Unknown: timeout / no response / process death
+  Unknown --> Submitted: retry, same key
+  Unknown --> Succeeded: reconciliation says it landed
+  Unknown --> Failed: reconciliation says it did not
+  Succeeded --> [*]
+  Failed --> [*]
+  note right of Unknown
+    UI shows "processing", never "failed".
+    Showing failure here is what makes
+    users pay twice.
+  end note
+  </pre>
   <p>This is Chapter 63's idempotency problem as a full design. <strong>The core state machine:</strong> <code>Draft → Committed(key persisted) → Submitted → Unknown | Succeeded | Failed</code>, where <code>Unknown</code> is a first-class state rather than an error.</p>
   <div class="code1"><div class="lab">The rule that prevents double charges</div><pre>// 1. Key is created when the USER commits, persisted BEFORE the call.
 val op = PendingPayment(

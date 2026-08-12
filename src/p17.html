@@ -59,6 +59,21 @@ do {
   <p>Deletions must be synced as explicit tombstone records. Without them, a client that was offline during a deletion never learns about it and the row lives forever — which presents as "deleted items keep coming back," one of the most reported sync bugs. Tombstones need a retention window agreed with the backend, and a client that has been offline longer than that window must perform a full resync rather than a delta.</p>
 
   <h2><span class="cn">Chapter 120</span>Conflict resolution</h2>
+  <pre class="mermaid">
+sequenceDiagram
+  participant A as Device A (offline)
+  participant S as Server
+  participant B as Device B (offline)
+  Note over A,B: both hold base version 7
+  A->>S: PATCH note 42, version 7
+  S-->>A: 200, now version 8
+  B->>S: PATCH note 42, version 7
+  S-->>B: 409 VERSION_CONFLICT + current record (v8)
+  Note over B: resolve by the TYPE's policy —<br/>LWW, per-field merge, server wins,<br/>or keep both as a conflict copy
+  B->>S: PATCH note 42, version 8
+  S-->>B: 200, now version 9
+  </pre>
+  <p>Device B needs three things to merge rather than overwrite: its local edit, the server's current record, and the <em>base</em> it started from. Clients that keep only the first two can overwrite but can never merge.</p>
   <div class="tw"><table>
     <thead><tr><th style="min-width:150px">Strategy</th><th>How it works</th><th>Right for / wrong for</th></tr></thead>
     <tbody>

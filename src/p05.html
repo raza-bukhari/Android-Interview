@@ -42,6 +42,21 @@
   </div>
 
   <h2><span class="cn">Chapter 34</span>Lifecycle-aware collection</h2>
+  <pre class="mermaid">
+sequenceDiagram
+  participant UI as Composable / Fragment
+  participant L as Lifecycle
+  participant VM as ViewModel StateFlow
+  participant R as Repository (upstream)
+  UI->>L: repeatOnLifecycle(STARTED)
+  L->>VM: collect starts
+  VM->>R: subscriptionCount 0 → 1, upstream starts
+  Note over UI,R: user backgrounds the app
+  L-->>VM: STOP → block cancelled, collector gone
+  VM-->>R: WhileSubscribed(5s) grace, then upstream stops
+  Note over UI,R: rotation instead: STOP then START inside 5s
+  L->>VM: collect restarts, cached value replayed, no refetch
+  </pre>
   <p>The single most consequential Jetpack detail: a coroutine launched in <code>lifecycleScope</code> is cancelled only at <code>onDestroy</code>. A flow collected there keeps running while the app is backgrounded — updating a UI nobody sees, holding a socket open, draining battery.</p>
 
   <div class="cmp">

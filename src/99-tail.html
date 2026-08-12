@@ -31,13 +31,15 @@
 
   var RX = {
     kotlin: new RegExp(
-      '(/\\*[\\s\\S]*?\\*/|//[^\\n]*)'                                   /* 1 comment */
-      + '|("""[\\s\\S]*?"""|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\')' /* 2 string */
-      + '|(@[A-Za-z_]\\w*)'                                              /* 3 annotation */
-      + '|\\b(fun)(\\s+)([A-Za-z_]\\w*)'                                 /* 4,5,6 fun decl */
-      + '|\\b(' + SOFT.join('|') + ')(\\s+)(' + AFTER_SOFT.join('|') + ')\\b'  /* 7,8,9 soft modifier */
-      + '|\\b(' + KW.join('|') + ')\\b'                                  /* 10 keyword */
-      + '|\\b(\\d[\\d_]*(?:\\.\\d+)?[fFlLuU]?)\\b', 'g'),                /* 11 number */
+      '(/\\*[\\s\\S]*?\\*/)'                                             /* 1 block comment / KDoc */
+      + '|(//[^\\n]*)'                                                   /* 2 line comment */
+      + '|("""[\\s\\S]*?"""|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\')' /* 3 string */
+      + '|((?<![\\w$@])@[A-Za-z_]\\w*)'          /* 4 annotation — not a label like return@launch */
+      + '|\\b(fun)(\\s+)([A-Za-z_]\\w*)'                                 /* 5,6,7 fun decl */
+      + '|\\b(' + SOFT.join('|') + ')(\\s+)(' + AFTER_SOFT.join('|') + ')\\b'  /* 8,9,10 soft modifier */
+      + '|\\b(get|set)(?=\\s*\\()'                                       /* 11 property accessor */
+      + '|\\b(' + KW.join('|') + ')\\b'                                  /* 12 keyword */
+      + '|\\b(\\d[\\d_]*(?:\\.\\d+)?[fFlLuU]?)\\b', 'g'),                /* 13 number */
     xml: new RegExp(
       '(<!--[\\s\\S]*?-->)'                                              /* 1 comment */
       + '|("(?:[^"\\\\]|\\\\.)*")'                                       /* 2 string */
@@ -56,7 +58,7 @@
   };
 
   var MAP = {
-    kotlin: { 1: 'cmt', 2: 'str', 3: 'ann', 10: 'kw', 11: 'num' },
+    kotlin: { 1: 'doc', 2: 'cmt', 3: 'str', 4: 'ann', 11: 'kw', 12: 'kw', 13: 'num' },
     xml:    { 1: 'cmt', 2: 'str', 3: 'tag', 4: 'att' },
     shell:  { 1: 'cmt', 2: 'str', 3: 'att', 4: 'num' },
     json:   { 1: 'cmt', 2: 'str', 3: 'kw',  4: 'num' }
@@ -79,6 +81,19 @@
     return 'text';
   }
 
+  /* A Kotlin string with its `$x` / `${…}` template entries picked out,
+     the way Android Studio renders them. */
+  function tplString(s) {
+    var rx = /\$\{[^}]*\}|\$[A-Za-z_]\w*/g, out = '', last = 0, m;
+    while ((m = rx.exec(s)) !== null) {
+      if (m.index > last) out += esc(s.slice(last, m.index));
+      out += '<span class="tok-tpl">' + esc(m[0]) + '</span>';
+      last = rx.lastIndex;
+    }
+    out += esc(s.slice(last));
+    return '<span class="tok-str">' + out + '</span>';
+  }
+
   function highlight(pre) {
     if (pre.classList.contains('mermaid')) return;
     var text = pre.textContent;
@@ -92,21 +107,27 @@
       if (m.index > last) out += esc(text.slice(last, m.index));
       var handled = false;
       if (lang === 'kotlin') {
-        /* `fun name` — keyword plus declaration name, unless what follows
-           `fun` is itself a keyword (e.g. `fun interface`). */
-        if (m[4]) {
-          var nameCls = KW.indexOf(m[6]) === -1 ? 'tok-fn' : 'tok-kw';
-          out += '<span class="tok-kw">' + esc(m[4]) + '</span>' + esc(m[5])
-               + '<span class="' + nameCls + '">' + esc(m[6]) + '</span>';
+        if (m[3]) {
+          /* String literal: Android Studio colours `$x` and `${…}` template
+             entries separately from the literal text around them. */
+          out += tplString(m[3]);
           handled = true;
-        } else if (m[7]) {
+        } else if (m[5]) {
+          /* `fun name` — keyword plus declaration name, unless what follows
+             `fun` is itself a keyword (e.g. `fun interface`). */
+          var nameCls = KW.indexOf(m[7]) === -1 ? 'tok-fn' : 'tok-kw';
+          out += '<span class="tok-kw">' + esc(m[5]) + '</span>' + esc(m[6])
+               + '<span class="' + nameCls + '">' + esc(m[7]) + '</span>';
+          handled = true;
+        } else if (m[8]) {
           /* soft modifier in modifier position: `data class`, `value class` */
-          out += '<span class="tok-kw">' + esc(m[7]) + '</span>' + esc(m[8])
-               + '<span class="tok-kw">' + esc(m[9]) + '</span>';
+          out += '<span class="tok-kw">' + esc(m[8]) + '</span>' + esc(m[9])
+               + '<span class="tok-kw">' + esc(m[10]) + '</span>';
           handled = true;
-        } else if (m[10] && text.charAt(m.index - 1) === '.') {
-          /* member access — `store.get(…)` is a call, not a keyword */
-          out += esc(m[10]);
+        } else if ((m[11] || m[12]) && text.charAt(m.index - 1) === '.') {
+          /* member access — `provider.get()` is a call, not an accessor
+             or a keyword. Only a bare `get()` / `set(…)` is one. */
+          out += esc(m[11] || m[12]);
           handled = true;
         }
       }
@@ -233,6 +254,20 @@
   ----------------------------------------------------------------*/
   var otpRail = $('#otp');
 
+  /* The rail can be dismissed for a wider reading column; the choice sticks. */
+  var otpShow = document.createElement('button');
+  otpShow.type = 'button';
+  otpShow.className = 'otpshow';
+  otpShow.textContent = 'Chapters';
+  otpShow.title = 'Show the on-this-page panel';
+  otpRail.parentNode.insertBefore(otpShow, otpRail.nextSibling);
+  otpShow.addEventListener('click', function () { setOtp(true); });
+
+  function setOtp(on) {
+    document.documentElement.classList.toggle('otp-off', !on);
+    store.set('sai-otp', on);
+  }
+
   function buildOtp(page) {
     var heads = $$('h2', page);
     otpRail.innerHTML = '';
@@ -242,7 +277,9 @@
 
     var title = function (h) { return h.textContent.replace(/^Chapter \d+/, '').replace(/#$/, '').trim(); };
 
-    otpRail.innerHTML = '<h6>On this page</h6>';
+    otpRail.innerHTML = '<h6>On this page'
+      + '<button type="button" class="otphide" title="Hide this panel for more reading width">Hide</button></h6>';
+    otpRail.querySelector('.otphide').addEventListener('click', function () { setOtp(false); });
     heads.forEach(function (h) {
       var cn = h.querySelector('.cn');
       var a = document.createElement('a');
@@ -516,6 +553,7 @@
   syncNav();
   window.addEventListener('resize', syncNav);
 
+  if (store.get('sai-otp', true) === false) document.documentElement.classList.add('otp-off');
   paintVisited();
   route(location.hash);
   decorateRest();

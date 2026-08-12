@@ -114,6 +114,15 @@ class MainDispatcherRule(
   <p><strong>The <code>StateFlow</code>/Turbine gotcha</strong> worth knowing: a <code>StateFlow</code> created with <code>WhileSubscribed</code> does not start until collected, so a test that reads <code>.value</code> without collecting sees only the initial value and appears broken. Inside <code>.test { }</code> the collection exists, which is one reason Turbine is the standard tool rather than a convenience.</p>
 
   <h2><span class="cn">Chapter 84</span>UI, screenshot, and end-to-end tests</h2>
+  <pre class="mermaid">
+flowchart TD
+  E2E["End-to-end · minutes · highest flake<br/>a handful of revenue-critical journeys"]
+  UIT["UI + screenshot · seconds · on device<br/>screen states across theme, locale, font scale"]
+  INT["Integration · tens of ms · Robolectric<br/>repository + DAO + mappers, with fakes"]
+  UNIT["Unit · milliseconds · JVM<br/>domain rules, reducers, state holders"]
+  E2E --- UIT --- INT --- UNIT
+  </pre>
+  <p>The ordering is economic, not moral: value is confidence bought divided by authoring plus maintenance plus flake, and that ratio collapses as you climb. Which is why the top tier is a few journeys rather than a suite.</p>
   <div class="tw"><table>
     <thead><tr><th style="min-width:150px">Layer</th><th style="min-width:120px">Runtime</th><th>Buys / costs</th></tr></thead>
     <tbody>

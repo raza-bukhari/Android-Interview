@@ -16,6 +16,18 @@
       <tr><td>Recovery time</td><td>Minutes</td><td>Hours (flag) to days (release), and never 100% of users</td></tr>
     </tbody>
   </table></div>
+  <pre class="mermaid">
+flowchart LR
+  D["Detect<br/>Vitals, Crashlytics, support"] --> T["Triage<br/>severity, blast radius, is it us?"]
+  T --> M1["Halt the rollout<br/>seconds, free, reversible"]
+  M1 --> M2["Kill switch / remote config<br/>minutes"]
+  M2 --> M3["Server-side fix<br/>hours"]
+  M3 --> M4["Forward hotfix<br/>days, never reaches everyone"]
+  M4 --> P["Blameless postmortem<br/>fix the class, not the instance"]
+  T -. "not us: OS or Play Services rollout" .-> W["Watch and communicate"]
+  </pre>
+  <p>The order matters and it is the opposite of a server incident: the cheapest, most reversible mitigation is first, and the code fix is last because it is the slowest and never reaches 100% of users.</p>
+
   <p><strong>Severity, defined before you need it:</strong> SEV1 — data loss, security exposure, or a core flow broken for a large cohort. SEV2 — significant degradation with a workaround. SEV3 — contained, non-blocking. Publish the definitions, because arguing about severity during an incident is how thirty minutes disappear.</p>
   <div class="note"><span class="lab">Roles worth naming</span><p>Incident commander (decides, does not debug), communications lead (updates stakeholders on a fixed cadence), and investigators. A Staff engineer in an incident is usually the commander, and the most common failure is that they get absorbed into debugging and stop coordinating.</p></div>
 

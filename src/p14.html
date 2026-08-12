@@ -89,6 +89,14 @@ android {
   </div>
 
   <h2><span class="cn">Chapter 90</span>Pipelines and static analysis</h2>
+  <pre class="mermaid">
+flowchart LR
+  L["Local pre-commit<br/>seconds — format only"] --> PR["Pre-merge<br/>&lt;10 min — compile, lint,<br/>affected-module tests, size diff"]
+  PR --> PM["Post-merge<br/>&lt;30 min — full unit suite,<br/>smoke tests, benchmarks"]
+  PM --> N["Nightly<br/>hours — E2E, screenshots,<br/>device matrix, dep audit"]
+  N --> REL["Release<br/>signed bundle, mapping upload,<br/>baseline profile, staged rollout"]
+  </pre>
+  <p>The budgets are the design. Anything slower than about ten minutes pre-merge gets routed around — engineers batch changes into larger pull requests, which are harder to review, which costs more quality than the extra checks bought.</p>
   <div class="tw"><table>
     <thead><tr><th style="min-width:130px">Stage</th><th style="min-width:130px">Budget</th><th>Contains</th></tr></thead>
     <tbody>

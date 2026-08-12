@@ -32,6 +32,17 @@
   </table></div>
 
   <h2><span class="cn">Chapter 71</span>App startup</h2>
+  <pre class="mermaid">
+flowchart LR
+  Z["zygote fork"] --> AC["Application.onCreate<br/>tier 1 only"]
+  AC --> ACT["Activity onCreate"]
+  ACT --> M["measure / layout / draw"]
+  M --> TTID["TTID — first frame"]
+  TTID --> DATA["data arrives"]
+  DATA --> TTFD["TTFD — reportFullyDrawn()"]
+  AC -. "tier 2: appScope, off the critical path" .-> BG["Analytics, experiments"]
+  ACT -. "tier 3: by lazy, on first use" .-> LZ["Ads, maps, video"]
+  </pre>
   <p><strong>Cold</strong> = process creation + Application + first Activity + first frame. <strong>Warm</strong> = process alive, activity recreated. <strong>Hot</strong> = activity resumed. Only cold start is worth optimising as a programme; it correlates with install-day retention and is the one users notice.</p>
   <p>Two metrics: <strong>TTID</strong> (time to initial display — first frame drawn) and <strong>TTFD</strong> (time to full display — content actually usable). Optimising TTID alone produces the cheat of drawing an empty skeleton fast; report both, and call <code>reportFullyDrawn()</code> so TTFD is measurable.</p>
 

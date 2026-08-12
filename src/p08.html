@@ -41,6 +41,20 @@ dependencies {
   <h2><span class="cn">Chapter 56</span>Breaking cycles: feature-to-feature navigation</h2>
   <p>The recurring problem: <code>:feature:cart</code> must open a product detail owned by <code>:feature:catalog</code>, and <code>:feature:catalog</code> must open the cart. A direct dependency in both directions is a cycle Gradle refuses.</p>
 
+  <pre class="mermaid">
+flowchart TD
+  subgraph BAD["cycle — Gradle refuses"]
+    C1[":feature:cart"] --> C2[":feature:catalog"]
+    C2 --> C1
+  end
+  subgraph GOOD["contract owned by nobody's team"]
+    A[":app — the only module that knows both"] --> D1[":feature:cart"]
+    A --> D2[":feature:catalog"]
+    D1 --> NAV[":core:navigation-api<br/>sealed Dest, interface Navigator"]
+    D2 --> NAV
+  end
+  </pre>
+
   <div class="cmp">
     <div class="cbox no"><div class="lab">Avoid — the "shared" escape hatch</div><pre>// Everyone depends on :core:shared, which grows to
 // hold ProductScreen, CartScreen, the analytics client,

@@ -16,7 +16,7 @@ $root = $PSScriptRoot
 
 # ---------------------------------------------------------------- assemble
 $order = @('00-head.html', '01-front.html')
-1..30 | ForEach-Object { $order += ('p{0:d2}.html' -f $_) }
+1..31 | ForEach-Object { $order += ('p{0:d2}.html' -f $_) }
 $order += '99-tail.html'
 
 $sb = New-Object System.Text.StringBuilder
@@ -94,7 +94,7 @@ for ($i = $script:protected.Count - 1; $i -ge 0; $i--) {
 }
 
 # ---------------------------------------------------------------- standalone document
-$desc = 'A book-length interview preparation guide for Staff, Principal and Mobile Architect level Android engineers: 30 parts, 179 chapters, 18 mobile system designs, graded answers and mock loops.'
+$desc = 'A book-length interview preparation guide for Staff, Principal and Mobile Architect level Android engineers: 31 parts, 190 chapters, 18 mobile system designs, graded answers, mock loops and an Android best-practice catalogue.'
 $icon = 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%A4%96%3C/text%3E%3C/svg%3E'
 
 $mermaidLoader = @'

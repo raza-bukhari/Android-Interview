@@ -45,6 +45,21 @@
   <h2><span class="cn">Chapter 63</span>Auth, token refresh, and single-flight coordination</h2>
   <p>The most-asked networking scenario at Staff level: <em>a token expires while five requests are in flight — design a solution that produces one refresh, not five.</em> It is asked because the naive implementation is both obvious and wrong, and because the failure mode (users randomly logged out) is one most candidates have actually seen without diagnosing.</p>
 
+  <pre class="mermaid">
+sequenceDiagram
+  participant A as Request A
+  participant B as Requests B–E
+  participant Au as Authenticator (Mutex)
+  participant S as Auth server
+  A->>Au: 401, stale = T0
+  B->>Au: 401, stale = T0 (queued on the mutex)
+  Au->>S: refresh(T0) — one call only
+  S-->>Au: T1
+  Au-->>A: retry with T1
+  Note over Au,B: B–E enter the lock, see stored != T0
+  Au-->>B: retry with T1, no second refresh
+  </pre>
+
   <div class="cmp">
     <div class="cbox no"><div class="lab">Avoid — refresh in an interceptor</div><pre>class AuthInterceptor(...) : Interceptor {
     override fun intercept(chain: Chain): Response {

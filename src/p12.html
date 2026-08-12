@@ -15,6 +15,20 @@
   </ul>
 
   <h2><span class="cn">Chapter 78</span>Leak topology</h2>
+  <pre class="mermaid">
+flowchart LR
+  GC(["GC root"]) --> ST["static / object / companion"]
+  GC --> TH["live thread, Handler queue"]
+  GC --> SVC["service, app-scoped coroutine"]
+  ST --> LST["listener list in a singleton"]
+  LST --> VM2["ViewModel or Fragment"]
+  TH --> RUN["delayed Runnable"]
+  RUN --> V["View"]
+  V --> ACT["Activity"]
+  ACT --> TREE["whole view hierarchy — megabytes"]
+  VM2 --> ACT
+  </pre>
+  <p>Read it right to left: anything still reachable from a GC root cannot be collected. Every fix cuts exactly one edge — unregister the listener, cancel the Runnable, null the binding — and none of them involve nulling the Activity.</p>
   <p>Every leak is the same shape: <strong>a long-lived object holds a reference to a short-lived one.</strong> Learning the six common paths lets you spot them in review rather than in a heap dump.</p>
 
   <div class="tw"><table>

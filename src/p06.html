@@ -156,6 +156,17 @@ fun Screen(
   <div class="note"><span class="lab">Strong skipping — what changed</span><p>With strong skipping mode (default from Compose 1.3.x-era compiler releases onward and standard in current toolchains), composables with unstable parameters become skippable using <em>instance equality</em> for unstable types, and lambdas are automatically remembered. This removes most of the manual <code>@Stable</code> work. Two things it does not remove: unstable types still compare by reference, so a newly-allocated equal object still triggers recomposition; and it does not fix a <code>List</code> you mutate in place. The L4 answer notes that strong skipping reduces the tax but does not make stability irrelevant — you still model state as immutable values.</p></div>
 
   <h2><span class="cn">Chapter 43</span>State hoisting and screen architecture</h2>
+  <pre class="mermaid">
+flowchart TD
+  VM["CartViewModel"] -- "StateFlow&lt;CartUiState&gt;" --> R["CartRoute — stateful"]
+  VM -- "Channel&lt;CartEvent&gt;" --> R
+  R -- "state: CartUiState" --> S["CartScreen — stateless"]
+  S -- "onIntent(CartIntent)" --> R
+  R -- "viewModel::onIntent" --> VM
+  S --> P["@Preview"]
+  S --> T["Screenshot test"]
+  </pre>
+  <p>The split exists so the two boxes on the right are reachable: a stateless screen can be rendered from a hand-built state with no ViewModel, DI or navigation, which is the only affordable way to cover 200 screens' visual states.</p>
   <div class="code1"><div class="lab">The screen contract that scales across 200 screens</div><pre>// 1. State: immutable, exhaustive, no events inside.
 @Immutable
 data class CartUiState(
@@ -194,6 +205,17 @@ fun CartScreen(
 
   <h2><span class="cn">Chapter 44</span>The three phases: composition, layout, drawing</h2>
   <p>Each frame runs up to three phases. State read in a <em>later</em> phase does not invalidate the earlier ones — which is the single highest-leverage Compose performance technique.</p>
+
+  <pre class="mermaid">
+flowchart LR
+  S["State change"] --> C["Composition<br/>what to show"]
+  C --> L["Layout<br/>measure &amp; place"]
+  L --> D["Drawing<br/>render commands"]
+  D --> F["Frame"]
+  S -. "read in Modifier.offset { }" .-> L
+  S -. "read in graphicsLayer { }" .-> D
+  </pre>
+  <p>The dotted paths are the point: a state value read inside a lambda-taking modifier is read <em>during</em> layout or draw, so a change to it re-runs only that phase. The same value read in the composable body invalidates all three.</p>
 
   <div class="cmp">
     <div class="cbox no"><div class="lab">Avoid — reading scroll state in composition</div><pre>val offset = scrollState.firstVisibleItemScrollOffset

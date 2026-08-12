@@ -70,6 +70,16 @@ room { schemaDirectory("$projectDir/schemas") }
     </tbody>
   </table></div>
 
+  <pre class="mermaid">
+flowchart LR
+  UI["UI"] -- observes --> DB[("Room — source of truth")]
+  API["Network"] -- writes --> DB
+  HTTP["OkHttp cache"] -. "revalidation bytes only" .- API
+  MEM["Bounded memory cache"] -- derived from --> DB
+  UI -. "never reads" .-x API
+  </pre>
+  <p>The rule that makes this coherent: <strong>the network never returns data to the UI.</strong> It writes to the store, and the UI observes the store. Each tier then has one job — truth, bandwidth, speed — instead of three tiers competing to answer the same question.</p>
+
   <div class="cmp">
     <div class="cbox no"><div class="lab">Avoid — the three-cache problem</div><pre>// Memory map in the repository (never bounded, never invalidated)
 // + OkHttp disk cache (its own TTL from server headers)

@@ -59,6 +59,22 @@ fun encrypt(plain: ByteArray): Pair&lt;ByteArray, ByteArray&gt; {
   </div>
 
   <h2><span class="cn">Chapter 94</span>Identity: OAuth2, tokens, biometrics</h2>
+  <pre class="mermaid">
+sequenceDiagram
+  participant App
+  participant CT as Custom Tab
+  participant IdP as Identity provider
+  participant API
+  App->>App: generate code_verifier, derive challenge
+  App->>CT: authorize?code_challenge=…&S256
+  CT->>IdP: user authenticates (App never sees credentials)
+  IdP-->>App: redirect with authorization code
+  App->>IdP: token(code, code_verifier) — no client secret
+  IdP-->>App: short access token + rotating refresh token
+  App->>App: store refresh token under a Keystore key
+  App->>API: Bearer access token
+  Note over App,IdP: refresh reuse detected ⇒ IdP revokes the whole family
+  </pre>
   <p>The correct mobile flow is <strong>Authorization Code with PKCE</strong>, in a Custom Tab — not an embedded WebView. The reasons matter in interviews: an embedded WebView means your app can read the user's credentials (so an identity provider cannot trust you, and increasingly blocks it), it does not share the system's session, and users cannot verify the URL bar to detect phishing.</p>
 
   <div class="tw"><table>

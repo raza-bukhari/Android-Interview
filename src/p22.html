@@ -40,6 +40,21 @@
   <div class="q">
     <p class="qt">Architecture 3</p>
     <p class="qh">"Every feature depends on :core, and :core has 200 files"</p>
+    <pre class="mermaid">
+flowchart LR
+  subgraph BEFORE["before — one edit rebuilds everything"]
+    F1[":feature:a"] --> C1[":core (200 files, no owner)"]
+    F2[":feature:b"] --> C1
+    F3[":feature:c"] --> C1
+  end
+  subgraph AFTER["after — split by capability, one owner each"]
+    G1[":feature:a"] --> N[":core:network"]
+    G1 --> DS[":core:designsystem"]
+    G2[":feature:b"] --> DS
+    G2 --> DB[":core:database"]
+    G3[":feature:c"] --> N
+  end
+    </pre>
     <p><strong>What breaks:</strong> any change to <code>:core</code> recompiles the whole app — the single biggest build-time cost in most large Android codebases; every team edits it, so it is a permanent conflict surface; it has no owner; and it accumulates unrelated things because "shared" is not a criterion.</p>
     <p><strong>Change:</strong> split by <em>capability</em>, not by layer: <code>:core:network</code>, <code>:core:database</code>, <code>:core:designsystem</code>, <code>:core:analytics-api</code>. Each with one owner. Anything used by fewer than three modules moves to its actual consumer.</p>
     <p><strong>Migration:</strong> measure first — which <code>:core</code> files actually change often, and which are on the critical build path. Extract the highest-churn, widest-dependency pieces first. Do it incrementally; a big-bang split of <code>:core</code> conflicts with every in-flight PR in the company.</p>
