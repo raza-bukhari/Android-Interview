@@ -1,0 +1,461 @@
+<section class="page" id="p3">
+  <header class="phead">
+    <p class="eyebrow">Part III</p>
+    <h1>Coroutines, Flow &amp; <em>Concurrency</em></h1>
+    <p class="deck">The highest-yield technical part of the book, and where strong Senior candidates most reliably reveal a ceiling — because concurrency failures only appear under load, cancellation, and error, which is exactly what interviewers probe.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 15</span>Structured concurrency from first principles</h2>
+  <p>Structured concurrency means every coroutine has a parent, and no parent completes before its children. Three properties follow, and they are the entire reason the model exists:</p>
+  <ul>
+    <li><strong>No leaks.</strong> Cancelling a scope cancels everything beneath it, transitively.</li>
+    <li><strong>Error propagation.</strong> A failing child cancels its siblings and notifies the parent — failures cannot be silently dropped.</li>
+    <li><strong>Completion is meaningful.</strong> When <code>coroutineScope { }</code> returns, all work it started is genuinely finished.</li>
+  </ul>
+
+  <pre class="mermaid">
+flowchart TD
+  VMS["viewModelScope (SupervisorJob + Main.immediate)"] --> A["launch: load profile"]
+  VMS --> B["launch: load orders"]
+  A --> A1["async: avatar"]
+  A --> A2["async: badges"]
+  B --> B1["async: page 1"]
+  A1 -. "throws" .-> A
+  A -. "cancels sibling" .-> A2
+  A -. "SupervisorJob stops here" .-> VMS
+  VMS --> B
+  </pre>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — GlobalScope</div><pre>class SyncRepository {
+    fun sync() {
+        GlobalScope.launch {
+            val data = api.fetch()
+            db.save(data)
+        }
+    }
+}</pre>
+      <p class="why">No owner, so no cancellation: the work outlives the screen, the user, and sometimes the login session. Exceptions go to the default handler and crash the process, or vanish. Untestable — a test has no handle to await. And it is invisible in review because it looks like the surrounding code.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — the caller owns the scope</div><pre>class SyncRepository(
+    private val api: Api,
+    private val db: Db,
+) {
+    suspend fun sync() {          // suspend, not launch
+        val data = api.fetch()
+        db.save(data)
+    }
+}
+
+// Caller decides the lifetime:
+viewModelScope.launch { repo.sync() }        // screen-scoped
+appScope.launch { repo.sync() }              // app-scoped, deliberate
+</pre>
+      <p class="why">A repository should expose <code>suspend</code> functions and let the caller own the scope. If work genuinely must outlive the screen (a write that must complete), inject a deliberately-scoped <code>CoroutineScope</code> — an application-scoped singleton with a <code>SupervisorJob</code> — so it is explicit, injectable, and replaceable in tests.</p></div>
+  </div>
+
+  <div class="q">
+    <p class="qt">Interview question · asked in nearly every Staff loop</p>
+    <p class="qh">"Why can <code>GlobalScope</code> create architectural problems?"</p>
+    <h4>Short answer</h4>
+    <p>It breaks the ownership chain. Work with no owner cannot be cancelled, cannot be awaited, cannot be tested deterministically, and its failures have no defined destination.</p>
+    <h4>Deep explanation</h4>
+    <p>Four concrete consequences. <strong>Leaks:</strong> a coroutine capturing a ViewModel or a Composable's lambda keeps it alive past its lifecycle. <strong>Unbounded concurrency:</strong> a screen that launches on every scroll event can produce hundreds of in-flight requests with nothing to cancel them. <strong>Undefined error handling:</strong> uncaught exceptions reach the thread's default handler, which on Android usually means a crash from a stack trace with no application frames. <strong>Test flakiness:</strong> <code>runTest</code> controls the test scope only, so <code>GlobalScope</code> work escapes virtual time and either races or is silently dropped.</p>
+    <h4>Real-world example</h4>
+    <p>A checkout screen fired analytics via <code>GlobalScope.launch</code>. On a slow network, users who abandoned checkout still had "purchase intent" events flushed minutes later, from a scope holding a reference to the abandoned cart. Two consequences: a memory retention path found by LeakCanary, and a data-quality bug that skewed the funnel by ~3%.</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"When <em>is</em> an application-scoped coroutine correct?" — Fire-and-forget writes that must survive navigation: marking a message read, flushing an analytics batch, completing a payment confirmation. Use an injected <code>@ApplicationScope CoroutineScope</code>, not <code>GlobalScope</code>, so it is visible in the DI graph and swappable in tests.</li>
+      <li>"How would you prevent it across 300 modules?" — A Detekt/lint rule banning <code>GlobalScope</code> at error severity, plus an approved <code>AppScope</code> injection in the paved road so there is a sanctioned alternative. A ban without an alternative produces creative workarounds.</li>
+      <li>"What about <code>WorkManager</code>?" — For work that must survive process death, a coroutine of any scope is the wrong tool; the OS can kill you at any moment. Durable work belongs in <code>WorkManager</code> with a unique-work policy.</li>
+      <li>"How do you test the app-scoped case?" — Inject a <code>TestScope</code> as the app scope so tests can advance and assert on it.</li>
+    </ol>
+    <h4>Interviewer evaluation</h4>
+    <p>L2 says "it leaks." L3 adds cancellation and testing. L4 adds the enforcement mechanism and the legitimate exception, and distinguishes app-scoped coroutines from durable work.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 16</span>Context, dispatchers, and main-safety</h2>
+  <p><code>CoroutineContext</code> is an immutable, indexed set of elements — <code>Job</code>, <code>CoroutineDispatcher</code>, <code>CoroutineName</code>, <code>CoroutineExceptionHandler</code> — combined with <code>+</code>. A child inherits the parent's context, with its own <code>Job</code> substituted.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Dispatcher</th><th style="min-width:130px">Backing</th><th>Use for / caution</th></tr></thead>
+    <tbody>
+      <tr><td><code>Main</code></td><td>Android main looper</td><td>UI state updates. <code>Main.immediate</code> avoids a re-post when already on main — this is what <code>viewModelScope</code> uses.</td></tr>
+      <tr><td><code>Default</code></td><td>CPU-count threads</td><td>Sorting, parsing, image maths, diffing. Saturating it blocks all CPU work app-wide.</td></tr>
+      <tr><td><code>IO</code></td><td>Elastic, 64+ threads, shared pool with Default</td><td>Blocking file/network/DB calls. <code>limitedParallelism(n)</code> to bound a subsystem.</td></tr>
+      <tr><td><code>Unconfined</code></td><td>Caller's thread until first suspend</td><td>Almost never in production. Legitimate in some test and operator-implementation cases.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — main-safety pushed onto callers</div><pre>class UserRepository(private val db: UserDao) {
+    // Blocking, but nothing says so.
+    fun loadBlocking(): User = db.queryBlocking()
+}
+
+// Every call site must remember:
+viewModelScope.launch {
+    val u = withContext(Dispatchers.IO) {
+        repo.loadBlocking()
+    }
+}
+// One forgotten withContext = a StrictMode
+// violation, an ANR under load, or both.</pre>
+      <p class="why">Main-safety as a call-site convention fails at scale — you cannot enforce it in review across 40 engineers.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — main-safe by contract</div><pre>class UserRepository(
+    private val db: UserDao,
+    private val io: CoroutineDispatcher,   // injected
+) {
+    /** Safe to call from any dispatcher. */
+    suspend fun load(): User = withContext(io) {
+        db.queryBlocking()
+    }
+}
+
+// Call site is trivial and cannot get it wrong:
+viewModelScope.launch { state = repo.load() }</pre>
+      <p class="why">The function that knows it blocks is the function that switches. Injecting the dispatcher (rather than referencing <code>Dispatchers.IO</code> directly) is what makes it testable with <code>UnconfinedTestDispatcher</code>.</p></div>
+  </div>
+
+  <div class="note"><span class="lab">The nuance interviewers reward</span><p>Room and Retrofit's <code>suspend</code> functions are <em>already</em> main-safe — Room dispatches to its own executor, Retrofit to OkHttp's. Wrapping them in <code>withContext(Dispatchers.IO)</code> is a no-op that costs a context switch and signals the candidate has not read the libraries. Saying this unprompted is a strong L4 marker.</p></div>
+
+  <h2><span class="cn">Chapter 17</span>Cancellation semantics</h2>
+  <p>Cancellation is <strong>cooperative</strong>. Cancelling a job sets its state to cancelling and, at the next suspension point, the suspending function throws <code>CancellationException</code>. Code that never suspends is never cancelled.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — uncancellable CPU loop, swallowed cancellation</div><pre>viewModelScope.launch(Dispatchers.Default) {
+    for (frame in frames) {          // 5k iterations
+        process(frame)               // pure CPU, no suspend
+    }
+}
+
+// elsewhere:
+try {
+    api.upload(file)
+} catch (e: Exception) {             // catches CancellationException!
+    log("upload failed", e)
+    state = Error
+}</pre>
+      <p class="why">The loop runs to completion after the screen is gone. And catching <code>Exception</code> swallows <code>CancellationException</code>, which breaks the structured-concurrency contract: the parent believes the child completed normally, and you get "error" UI on a screen the user already left.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — cooperate, and let cancellation through</div><pre>viewModelScope.launch(Dispatchers.Default) {
+    for (frame in frames) {
+        ensureActive()               // cheap cancellation check
+        process(frame)
+    }
+}
+
+try {
+    api.upload(file)
+} catch (e: CancellationException) {
+    throw e                          // never swallow
+} catch (e: IOException) {
+    state = Error(e.toMessage())
+}</pre>
+      <p class="why"><code>ensureActive()</code> (or <code>yield()</code> if you also want to give up the thread) makes CPU work cancellable. Rethrowing <code>CancellationException</code> — or catching specific exception types — keeps cancellation working.</p></div>
+  </div>
+
+  <h4>Cleanup that must run after cancellation</h4>
+  <div class="code1"><div class="lab">withContext(NonCancellable) — use sparingly and only in finally</div><pre>suspend fun uploadWithCleanup(file: File) {
+    val session = api.beginUpload(file.name)
+    try {
+        api.uploadChunks(session, file)      // cancellable
+    } finally {
+        // Suspending calls in a cancelled scope throw immediately
+        // unless we opt out. Keep this block tiny and fast.
+        withContext(NonCancellable) {
+            api.abortIfIncomplete(session)
+        }
+    }
+}</pre></div>
+
+  <div class="q">
+    <p class="qt">Interview question · scenario</p>
+    <p class="qh">"The user leaves a screen while a write is in flight. What should happen?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>Because the naive answer ("cancel it, that's what <code>viewModelScope</code> is for") is wrong for writes and right for reads, and the candidate's ability to distinguish tells you whether they have shipped a real app.</p>
+    <h4>Staff answer <span class="chip c4">L4</span></h4>
+    <p>"It depends on whether the operation is <em>owned by the screen</em> or by the <em>user's intent</em>. A read — loading the profile — is screen-owned: cancel it, nothing is lost. A write — submitting an order, marking a message read — is intent-owned: the user asked for it and leaving the screen is not a retraction. Cancelling it mid-flight also creates the worst possible state, because the server may already have committed.</p>
+    <p>So I'd split them. Reads go in <code>viewModelScope</code>. Writes go to an application-scoped coroutine, and if the write must survive process death — a payment, a post — it goes into <code>WorkManager</code> with a unique-work policy and an idempotency key, because an app-scoped coroutine dies with the process too. The idempotency key matters because the retry after process death must not produce a second order.</p>
+    <p>The failure mode to name: if the write is app-scoped and the ViewModel exposes the result, you now have a coroutine holding a reference to a dead ViewModel. The result has to land in a repository or database that the next screen observes, not in the ViewModel that started it."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"How does the user find out it succeeded?" — Persisted state observed by whatever screen is current, plus a notification if the operation is long. Never a toast fired from a dead scope.</li>
+      <li>"How do you test the process-death path?" — Instrumented test with <code>WorkManager</code>'s <code>TestDriver</code>, plus a unit test asserting the idempotency key is stable across restarts.</li>
+      <li>"What if the user logs out mid-write?" — The queue must be user-scoped and purged on logout, otherwise you write to the wrong account. This is a real production bug class.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 18</span>Exception propagation and supervision</h2>
+  <p>The single most-asked coroutine question in Staff loops is a variant of: <em>three concurrent requests, one fails — what happens to the other two?</em> The answer depends entirely on the builder and the scope.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Construct</th><th>On child failure</th><th>Where the exception surfaces</th></tr></thead>
+    <tbody>
+      <tr><td><code>coroutineScope { }</code></td><td>Cancels all siblings, then rethrows.</td><td>At the <code>coroutineScope</code> call, to the caller.</td></tr>
+      <tr><td><code>supervisorScope { }</code></td><td>Siblings continue.</td><td>At each child's own <code>await()</code>, or the handler for <code>launch</code>.</td></tr>
+      <tr><td><code>launch</code></td><td>Propagates up immediately.</td><td>Nearest <code>CoroutineExceptionHandler</code>, else the thread default handler (crash).</td></tr>
+      <tr><td><code>async</code></td><td>Deferred until awaited…</td><td>…but in a normal scope it <em>still</em> cancels the parent immediately. Only under a supervisor is it truly deferred.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — assuming try/catch around await() contains it</div><pre>suspend fun loadDashboard() = coroutineScope {
+    val profile = async { api.profile() }
+    val orders  = async { api.orders() }
+    val promos  = async { api.promos() }   // optional data
+
+    Dashboard(
+        profile = profile.await(),
+        orders  = orders.await(),
+        promos  = try { promos.await() }   // does NOT help
+                  catch (e: Exception) { emptyList() }
+    )
+}</pre>
+      <p class="why">When <code>promos</code> fails, <code>async</code> in a regular <code>coroutineScope</code> cancels the parent <em>at failure time</em>, not at await time. The whole dashboard fails even though the promo data was optional, and the <code>catch</code> never runs meaningfully.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — supervise the optional work</div><pre>suspend fun loadDashboard() = coroutineScope {
+    // Required data: fail together, deliberately.
+    val profile = async { api.profile() }
+    val orders  = async { api.orders() }
+
+    // Optional data: isolated failure.
+    val promos = async {
+        runCatching { api.promos() }.getOrDefault(emptyList())
+    }
+
+    Dashboard(profile.await(), orders.await(), promos.await())
+}</pre>
+      <p class="why">Handle the failure <em>inside</em> the child so it never propagates, or wrap the optional children in <code>supervisorScope</code>. Deciding which data is required and which is optional is a product decision the candidate should surface explicitly.</p></div>
+  </div>
+
+  <div class="note"><span class="lab">Trap: SupervisorJob in the wrong place</span><p><code>launch(SupervisorJob())</code> does <em>not</em> supervise anything useful — passing a <code>Job</code> to a builder replaces the child's job but the new job's parent is the scope's job, so failures still propagate, and worse, you have detached cancellation. Supervision comes from the <em>scope</em>: <code>CoroutineScope(SupervisorJob() + dispatcher)</code> or <code>supervisorScope { }</code>. Candidates who write <code>launch(SupervisorJob())</code> in a coding round are demonstrating a memorised token rather than a model.</p></div>
+
+  <h2><span class="cn">Chapter 19</span>Shared mutable state: Mutex, atomics, confinement</h2>
+  <p>Three strategies, in the order you should reach for them:</p>
+  <ol>
+    <li><strong>Confinement</strong> — do not share. A single coroutine owns the state; others send it messages. Zero locking, but adds indirection.</li>
+    <li><strong>Atomics</strong> — for a single independent value. <code>AtomicInteger</code>, <code>MutableStateFlow.update { }</code> (which uses a CAS loop).</li>
+    <li><strong>Mutex</strong> — coroutine-aware lock; suspends instead of blocking a thread. Use when several values must change together.</li>
+  </ol>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — read-modify-write race</div><pre>private val _state = MutableStateFlow(UiState())
+
+fun addItem(item: Item) {
+    // Two concurrent calls: both read the same
+    // old value, second write wins, first item lost.
+    _state.value = _state.value.copy(
+        items = _state.value.items + item
+    )
+}
+
+// And never this in a coroutine:
+private val lock = ReentrantLock()
+suspend fun save() = lock.withLock { api.save() } // blocks a thread</pre>
+      <p class="why">The first is a classic lost update — invisible in testing, reproducible only under real concurrency. The second blocks an <code>IO</code> thread and can deadlock if the lambda suspends.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — atomic update, or a Mutex</div><pre>fun addItem(item: Item) {
+    _state.update { it.copy(items = it.items + item) }  // CAS loop
+}
+
+// When several pieces must change atomically:
+private val mutex = Mutex()
+private var session: Session? = null
+
+suspend fun refresh(): Session = mutex.withLock {
+    session?.takeIf { it.valid } ?: api.refresh().also { session = it }
+}</pre>
+      <p class="why"><code>update { }</code> retries on conflict, so no update is lost. <code>Mutex.withLock</code> suspends rather than blocking, and is safe around suspending calls. Note it is <em>not</em> reentrant — a nested <code>withLock</code> on the same mutex deadlocks.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 20</span>Flow fundamentals: cold streams</h2>
+  <p>A <code>Flow</code> is a suspending producer with no state of its own. The builder block does not run until <code>collect</code>; each collector re-runs it independently; and the whole thing is cancelled by cancelling the collecting coroutine.</p>
+
+  <p>Two invariants define correct <code>Flow</code> code:</p>
+  <ul>
+    <li><strong>Context preservation.</strong> A flow must emit in the collector's context. Emitting from a different coroutine throws <code>IllegalStateException</code>; change context with <code>flowOn</code>, never with <code>withContext</code> around an <code>emit</code>.</li>
+    <li><strong>Exception transparency.</strong> A flow may not catch exceptions thrown downstream. <code>try/catch</code> around <code>emit</code> violates this; use the <code>catch</code> operator, which only sees upstream failures.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — both invariants violated</div><pre>fun items(): Flow&lt;List&lt;Item&gt;&gt; = flow {
+    try {
+        withContext(Dispatchers.IO) {
+            emit(dao.loadBlocking())      // ✗ wrong context
+        }
+    } catch (e: Exception) {              // ✗ catches downstream too
+        emit(emptyList())
+    }
+}</pre>
+      <p class="why">The emit throws <code>IllegalStateException: Flow invariant is violated</code>, and the catch would swallow a crash originating in the collector's own code — a bug that presents as "the UI silently shows an empty list."</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — flowOn and catch</div><pre>fun items(): Flow&lt;List&lt;Item&gt;&gt; = flow {
+        emit(dao.loadBlocking())
+    }
+    .flowOn(Dispatchers.IO)       // upstream context only
+    .catch { e -&gt;                 // upstream failures only
+        Log.w(TAG, "items failed", e)
+        emit(emptyList())
+    }</pre>
+      <p class="why"><code>flowOn</code> affects everything <em>above</em> it; <code>catch</code> sees only what is above it. Both compose predictably, which is why they exist as operators rather than language constructs.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 21</span>Hot streams: StateFlow, SharedFlow, Channel</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Type</th><th style="min-width:120px">Semantics</th><th>Correct use / failure mode</th></tr></thead>
+    <tbody>
+      <tr><td><code>StateFlow</code></td><td>Always has a value; conflated; distinct-until-changed by <code>equals</code>.</td><td>UI state. Failure mode: it drops intermediate values, so it must never carry events.</td></tr>
+      <tr><td><code>SharedFlow</code></td><td>Configurable replay and buffer; no initial value.</td><td>Events with multiple observers. Failure mode: <code>replay &gt; 0</code> re-delivers old events to a new subscriber (navigation fires twice after rotation).</td></tr>
+      <tr><td><code>Channel</code></td><td>Point-to-point; each element consumed once.</td><td>One-shot events with exactly one consumer. Failure mode: an event sent while nothing collects is buffered or suspends; consumed elements are gone on rotation.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — events in StateFlow</div><pre>data class UiState(
+    val items: List&lt;Item&gt; = emptyList(),
+    val navigateTo: Route? = null,     // event in state
+    val errorMessage: String? = null,  // event in state
+)
+
+// UI must remember to clear it:
+LaunchedEffect(state.navigateTo) {
+    state.navigateTo?.let {
+        nav.navigate(it)
+        vm.consumedNavigation()   // easy to forget
+    }
+}</pre>
+      <p class="why">Rotation re-emits the state and navigates again. Two errors in a row with the same message emit once because <code>StateFlow</code> is distinct-until-changed. Every consumer must implement a consume protocol.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — state and events as separate channels</div><pre>// State: what the screen looks like.
+val state: StateFlow&lt;UiState&gt; = ...
+
+// Events: things that happen once.
+private val _events = Channel&lt;UiEvent&gt;(Channel.BUFFERED)
+val events = _events.receiveAsFlow()
+
+// UI:
+LaunchedEffect(Unit) {
+    lifecycle.repeatOnLifecycle(STARTED) {
+        vm.events.collect { e -&gt;
+            when (e) {
+                is Navigate -&gt; nav.navigate(e.route)
+                is ShowSnack -&gt; snackbar.showSnackbar(e.text)
+            }
+        }
+    }
+}</pre>
+      <p class="why">A <code>Channel</code> with <code>receiveAsFlow</code> gives exactly-once delivery to a single collector and buffers while the UI is stopped. Repeated identical errors both arrive. Nothing replays on rotation.</p></div>
+  </div>
+  <div class="note"><span class="lab">Honest trade-off to state in the interview</span><p><code>Channel</code>-based events are not free: if the UI is destroyed before collecting, buffered events are lost, and with multiple collectors the delivery is arbitrary. <code>SharedFlow(replay = 0, extraBufferCapacity = 1)</code> is the multi-observer alternative but drops events with no active subscriber. There is no perfect answer — the L4 move is naming which loss you are accepting and why.</p></div>
+
+  <h2><span class="cn">Chapter 22</span>Backpressure, sharing, and stateIn</h2>
+  <p>Coroutine flows apply backpressure by default: a slow collector suspends the producer. Operators change that trade-off explicitly.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Operator</th><th>Behaviour</th><th>Reach for it when</th></tr></thead>
+    <tbody>
+      <tr><td><code>buffer(n)</code></td><td>Producer runs ahead into a buffer.</td><td>Producer and collector are both slow but independent.</td></tr>
+      <tr><td><code>conflate()</code></td><td>Keeps only the latest, drops intermediates.</td><td>Only the current value matters: location, progress, sensor.</td></tr>
+      <tr><td><code>debounce(t)</code></td><td>Emits after quiet period.</td><td>Search-as-you-type. Adds latency by design.</td></tr>
+      <tr><td><code>sample(t)</code></td><td>Emits latest every interval.</td><td>Steady-rate UI updates from a firehose.</td></tr>
+      <tr><td><code>flatMapLatest</code></td><td>Cancels the previous inner flow.</td><td>Query → results. The correct default for user-driven input.</td></tr>
+      <tr><td><code>flatMapMerge</code></td><td>Runs inner flows concurrently.</td><td>Independent fan-out; bound it with <code>concurrency = n</code>.</td></tr>
+      <tr><td><code>flatMapConcat</code></td><td>Sequential, ordered.</td><td>Order matters and must be preserved.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="code1"><div class="lab">The canonical search pipeline — every operator earns its place</div><pre>private val query = MutableStateFlow("")
+
+val results: StateFlow&lt;SearchState&gt; = query
+    .debounce(300)                       // don't search every keystroke
+    .map { it.trim() }
+    .distinctUntilChanged()              // "ab " and "ab" are one query
+    .filter { it.length &gt;= 2 }
+    .flatMapLatest { q -&gt;                // cancel the previous request
+        repo.search(q)                   // Flow&lt;List&lt;Result&gt;&gt;
+            .map&lt;List&lt;Result&gt;, SearchState&gt; { SearchState.Results(it) }
+            .onStart { emit(SearchState.Loading) }
+            .catch { emit(SearchState.Failed(it.userMessage())) }
+    }
+    .stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = SearchState.Idle,
+    )</pre></div>
+
+  <div class="q">
+    <p class="qt">Interview question · the <code>WhileSubscribed(5000)</code> question</p>
+    <p class="qh">"Why <code>WhileSubscribed(5000)</code> and not <code>Eagerly</code> or <code>Lazily</code>?"</p>
+    <h4>Short answer</h4>
+    <p>The 5-second grace period keeps the upstream alive across a configuration change, so rotation does not re-run the query, while still stopping it when the user actually leaves.</p>
+    <h4>Deep explanation</h4>
+    <p><code>Eagerly</code> starts the upstream at construction and never stops it — a location or socket flow then runs while the app is backgrounded, burning battery. <code>Lazily</code> starts on first collection and never stops — same problem, delayed. <code>WhileSubscribed(0)</code> stops immediately on unsubscribe, which means rotation tears down and re-establishes the upstream: a wasted network call and a visible flicker. The 5-second value is chosen to exceed a configuration change but be far below any meaningful idle period.</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What does <code>replayExpirationMillis</code> do?" — Controls how long the cached value is retained after the upstream stops. Setting it to zero forces a fresh load after the grace period expires, which you want for data that goes stale (a balance) and do not want for data that does not (a profile name).</li>
+      <li>"Five screens collect the same repository flow. How many network calls?" — With <code>stateIn</code>/<code>shareIn</code> at the repository, one; the shared flow multicasts. Without sharing, five, because <code>Flow</code> is cold. This is the single most common source of duplicate requests in a Compose app.</li>
+      <li>"What happens to an exception in a shared flow?" — It terminates the shared upstream for <em>all</em> collectors, and with <code>WhileSubscribed</code> it will restart on the next subscription. Errors must be caught and modelled as values inside the flow, not allowed to escape — otherwise one screen's failure silently kills another screen's data.</li>
+      <li>"Where should <code>stateIn</code> live — repository or ViewModel?" — ViewModel by default (screen-scoped state). Repository only when the data is genuinely app-wide and shared, and then it needs an app-scoped <code>CoroutineScope</code> and a deliberate <code>SharingStarted</code> policy.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 23</span>Concurrency design problems</h2>
+
+  <h3>Request deduplication — five screens, one call</h3>
+  <div class="code1"><div class="lab">Single-flight deduplicator with correct cancellation semantics</div><pre>class SingleFlight&lt;K : Any, V&gt;(private val scope: CoroutineScope) {
+    private val mutex = Mutex()
+    private val inFlight = mutableMapOf&lt;K, Deferred&lt;V&gt;&gt;()
+
+    suspend fun run(key: K, block: suspend () -&gt; V): V {
+        val deferred = mutex.withLock {
+            inFlight[key] ?: scope.async(start = CoroutineStart.LAZY) {
+                try { block() } finally { mutex.withLock { inFlight.remove(key) } }
+            }.also { inFlight[key] = it }
+        }
+        // await() from the *caller's* coroutine: if this caller is
+        // cancelled, the shared work continues for the others.
+        return deferred.await()
+    }
+}</pre></div>
+  <p><strong>Why the shared <code>scope</code> matters:</strong> if the work were launched in the first caller's scope, that caller navigating away would cancel the request for the other four. Hosting it in a shared scope decouples the work's lifetime from any one consumer — the trade-off being that you must remove entries in a <code>finally</code> or the map grows forever.</p>
+
+  <h3>Token refresh — one refresh, not five</h3>
+  <div class="code1"><div class="lab">OkHttp Authenticator with coordinated refresh</div><pre>class AuthAuthenticator(
+    private val tokens: TokenStore,
+    private val refreshApi: RefreshApi,
+) : Authenticator {
+    private val mutex = Mutex()
+
+    override fun authenticate(route: Route?, response: Response): Request? {
+        if (responseCount(response) &gt;= 2) return null   // stop retry loops
+        val stale = response.request.header("Authorization")
+            ?.removePrefix("Bearer ")
+
+        val fresh = runBlocking {          // Authenticator is a blocking API
+            mutex.withLock {
+                val current = tokens.access()
+                // Another thread already refreshed while we waited.
+                if (current != null &amp;&amp; current != stale) return@withLock current
+                val new = runCatching { refreshApi.refresh(tokens.refresh()) }
+                    .getOrElse { tokens.clear(); return@withLock null }
+                tokens.save(new); new.access
+            }
+        } ?: return null                   // force logout upstream
+
+        return response.request.newBuilder()
+            .header("Authorization", "Bearer $fresh")
+            .build()
+    }
+}</pre></div>
+  <p>The critical line is the comparison against the <em>stale</em> token: five requests fail concurrently, all enter the mutex in turn, and only the first performs a refresh — the rest observe that the stored token has changed and reuse it. Without that check you get five refreshes, and with rotating refresh tokens, four of them fail and log the user out.</p>
+
+  <div class="panel">
+    <h4>Part III rapid recall</h4>
+    <ul>
+      <li>Repositories expose <code>suspend</code>/<code>Flow</code>; callers own scopes. <code>GlobalScope</code> never; injected <code>AppScope</code> deliberately; <code>WorkManager</code> for durability.</li>
+      <li>Main-safety belongs to the function that blocks, with an injected dispatcher. Room and Retrofit <code>suspend</code> functions are already main-safe.</li>
+      <li>Cancellation is cooperative: <code>ensureActive()</code> in CPU loops, never catch <code>CancellationException</code>, cleanup in <code>finally</code> with <code>NonCancellable</code>.</li>
+      <li><code>async</code> in a plain <code>coroutineScope</code> fails the parent at throw time, not at await time.</li>
+      <li>Supervision comes from the scope, not from passing a <code>SupervisorJob</code> to a builder.</li>
+      <li><code>StateFlow</code> for state, <code>Channel</code>/<code>SharedFlow</code> for events — never events inside state.</li>
+      <li><code>WhileSubscribed(5000)</code> survives rotation; unshared cold flows produce N calls for N collectors.</li>
+      <li>Deduplicate with a shared-scope <code>Deferred</code> map; coordinate refresh by comparing against the stale token.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p2" data-p="p2"><span class="k">Previous</span><span class="t">← Part II</span></a><a class="r" href="#p4" data-p="p4"><span class="k">Next</span><span class="t">Part IV — Android Platform →</span></a></div>
+</section>

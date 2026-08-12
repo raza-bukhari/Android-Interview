@@ -1,0 +1,204 @@
+<section class="page" id="p12">
+  <header class="phead">
+    <p class="eyebrow">Part XII</p>
+    <h1>Memory <em>Management</em></h1>
+    <p class="deck">Leak topology, GC behaviour, and hands-on diagnosis. Memory bugs are the ones that reach production most reliably, because they need time and real usage to become visible.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 77</span>The runtime memory model</h2>
+  <ul>
+    <li><strong>ART uses a concurrent, mostly-generational collector.</strong> Short-lived objects are cheap; long-lived ones that survive several collections are promoted and become expensive to collect. Allocation itself is cheap — the cost is the collection pressure it creates.</li>
+    <li><strong>Your heap is capped per app</strong> (<code>ActivityManager.memoryClass</code>, commonly 128–512 MB depending on device). Exceeding it is <code>OutOfMemoryError</code>, regardless of how much RAM the device has.</li>
+    <li><strong>Native memory is separate.</strong> Hardware bitmaps, native libraries, and NDK allocations do not count toward the Java heap but do count toward the process's overall footprint — so a process can be killed by the low-memory killer with a nearly-empty Java heap.</li>
+    <li><strong><code>onTrimMemory</code></strong> is the OS asking you to release caches before it kills you. Apps that ignore it get killed sooner, which shows up as a worse warm-start rate.</li>
+    <li><strong>GC pauses cause jank</strong> when they land inside a frame. Per-frame allocation in a scrolling list is the usual source.</li>
+  </ul>
+
+  <h2><span class="cn">Chapter 78</span>Leak topology</h2>
+  <p>Every leak is the same shape: <strong>a long-lived object holds a reference to a short-lived one.</strong> Learning the six common paths lets you spot them in review rather than in a heap dump.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:160px">Path</th><th style="min-width:200px">Mechanism</th><th>Structural fix</th></tr></thead>
+    <tbody>
+      <tr><td>Static holds Context</td><td><code>object</code> / companion field storing an Activity</td><td>Application context, injected</td></tr>
+      <tr><td>Unregistered listener</td><td>A singleton's callback list holds the Fragment</td><td><code>DisposableEffect</code> / mirrored lifecycle callback</td></tr>
+      <tr><td>Inner class / lambda</td><td>Non-static inner class or a lambda capturing <code>this</code></td><td>Pass only what is needed; make it top-level</td></tr>
+      <tr><td>Handler / Runnable</td><td>Delayed message referencing the View</td><td><code>removeCallbacks</code> in the teardown callback</td></tr>
+      <tr><td>Coroutine in the wrong scope</td><td>App-scoped coroutine capturing a ViewModel</td><td>Correct scope; deliver results to a store, not a UI object</td></tr>
+      <tr><td>Fragment view lifecycle</td><td>Binding held past <code>onDestroyView</code></td><td>Null the binding, or use <code>viewLifecycleOwner</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — three leaks in ten lines</div><pre>class DetailFragment : Fragment() {
+    private lateinit var binding: FragmentDetailBinding
+    private val handler = Handler(Looper.getMainLooper())
+
+    override fun onViewCreated(v: View, s: Bundle?) {
+        // 1. Singleton keeps a strong ref to this fragment forever
+        LocationManagerSingleton.addListener(this)
+
+        // 2. Delayed runnable holds the view for 30 s past destruction
+        handler.postDelayed({ binding.banner.isVisible = true }, 30_000)
+
+        // 3. Binding survives onDestroyView → leaks the whole view tree
+    }
+}</pre>
+      <p class="why">All three survive navigation. Rotate ten times and you retain ten view hierarchies — this is how an app "gets slower the longer you use it."</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — lifecycle-bounded everything</div><pre>class DetailFragment : Fragment(R.layout.fragment_detail) {
+    private var binding: FragmentDetailBinding? = null
+
+    override fun onViewCreated(v: View, s: Bundle?) {
+        binding = FragmentDetailBinding.bind(v)
+
+        viewLifecycleOwner.lifecycle.addObserver(
+            LocationObserver(locationManager)      // self-unregistering
+        )
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            delay(30_000)
+            binding?.banner?.isVisible = true      // cancelled on destroy
+        }
+    }
+
+    override fun onDestroyView() {
+        binding = null
+        super.onDestroyView()
+    }
+}</pre>
+      <p class="why">A coroutine on <code>viewLifecycleOwner.lifecycleScope</code> replaces the Handler and is cancelled automatically. In Compose the equivalent is <code>DisposableEffect</code> with a real <code>onDispose</code>.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 79</span>Diagnosing with heap dumps</h2>
+  <div class="code1"><div class="lab">The workflow</div><pre>1. Reproduce:  navigate in and out of the suspect screen 10×,
+               with a manual GC between (Profiler → trash icon).
+2. Dump:       Studio Memory Profiler → capture heap dump,
+               or  adb shell am dumpheap &lt;pid&gt; /data/local/tmp/h.hprof
+3. Filter:     group by class, sort by retained size, filter to
+               your package. Look for N instances of an Activity
+               where N should be 1.
+4. Path:       inspect "references to this" → find the shortest
+               strong path from a GC root. That path IS the bug.
+5. Confirm:    fix, repeat step 1–3, assert the count is 1.</pre></div>
+  <p><strong>Retained vs shallow size</strong> is the distinction interviewers check. Shallow size is the object's own fields; retained size is everything that would be freed if it went away. An Activity has a small shallow size and an enormous retained size — which is why one leaked Activity matters and one leaked String does not.</p>
+  <p><strong>LeakCanary in CI:</strong> beyond the debug-build toast, its detection can run in instrumented tests and fail the build on a new leak. That converts leaks from "someone notices eventually" to a gate — the Staff-level move.</p>
+
+  <div class="note"><span class="lab">Not every retention is a leak</span><p>A cache holding 200 bitmaps is retention by design. The question is whether it is <em>bounded</em> and whether it <em>responds to memory pressure</em>. Calling a deliberate bounded cache a leak in an interview is a small but real signal that the candidate is pattern-matching rather than reasoning.</p></div>
+
+  <h2><span class="cn">Chapter 80</span>Exercises — five leaks to find</h2>
+
+  <div class="q">
+    <p class="qt">Exercise 1</p>
+    <p class="qh">Find the leak</p>
+    <div class="code1"><div class="lab">Kotlin</div><pre>class AnalyticsBus {
+    companion object {
+        private val listeners = mutableListOf&lt;(Event) -&gt; Unit&gt;()
+        fun subscribe(l: (Event) -&gt; Unit) { listeners += l }
+        fun publish(e: Event) { listeners.forEach { it(e) } }
+    }
+}
+
+class CartViewModel(private val repo: CartRepo) : ViewModel() {
+    init {
+        AnalyticsBus.subscribe { event -&gt;
+            if (event is PriceChanged) refresh()   // captures `this`
+        }
+    }
+}</pre></div>
+    <h4>Answer</h4>
+    <p>The lambda captures the ViewModel; the companion's list is a GC root for the process lifetime. Every screen visit adds a permanently-retained ViewModel — and each one still reacts to events, so <code>refresh()</code> fires N times after N visits, producing duplicate network calls as well as a leak. <strong>Fix:</strong> return a subscription handle and dispose it in <code>onCleared()</code>, or better, replace the bus with a <code>SharedFlow</code> collected in <code>viewModelScope</code>, which is cancelled automatically.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Exercise 2</p>
+    <p class="qh">Find the leak</p>
+    <div class="code1"><div class="lab">Kotlin</div><pre>@Composable
+fun LocationBanner(manager: LocationManager) {
+    var location by remember { mutableStateOf&lt;Location?&gt;(null) }
+
+    LaunchedEffect(Unit) {
+        manager.registerListener { location = it }
+    }
+
+    location?.let { Text("Near ${it.name}") }
+}</pre></div>
+    <h4>Answer</h4>
+    <p><code>LaunchedEffect</code> cancels its <em>coroutine</em> on leaving composition, but registration is not a coroutine — nothing unregisters the listener, and the callback captures the composition's state object. <strong>Fix:</strong> <code>DisposableEffect(manager) { val l = manager.registerListener {...}; onDispose { manager.unregister(l) } }</code>. The general rule: <code>LaunchedEffect</code> for suspending work, <code>DisposableEffect</code> for anything with a register/unregister pair.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Exercise 3</p>
+    <p class="qh">Find the leak — and the second bug</p>
+    <div class="code1"><div class="lab">Kotlin</div><pre>@Singleton
+class ImageLoader @Inject constructor() {
+    private val cache = mutableMapOf&lt;String, Bitmap&gt;()
+
+    fun load(url: String, into: ImageView) {
+        cache[url]?.let { into.setImageBitmap(it); return }
+        thread {
+            val bmp = decode(url)
+            cache[url] = bmp
+            into.post { into.setImageBitmap(bmp) }
+        }
+    }
+}</pre></div>
+    <h4>Answer</h4>
+    <p>Three defects. <strong>Unbounded cache:</strong> a map of full-size bitmaps in a singleton grows until <code>OutOfMemoryError</code> — no eviction, no memory-pressure response. <strong>View capture:</strong> the background thread holds the <code>ImageView</code>, and therefore the Activity, until decode finishes; on a slow network that outlives the screen. <strong>Concurrency:</strong> a plain <code>mutableMapOf</code> written from arbitrary threads can corrupt or lose entries. <strong>Fix:</strong> use <code>LruCache</code> sized from <code>memoryClass</code>, decode to the target size, hold the view weakly (or better, use Coil, which solves all three and cancels on detach).</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Exercise 4</p>
+    <p class="qh">Why does memory grow over hours with no leaked Activities?</p>
+    <div class="code1"><div class="lab">Kotlin</div><pre>class ChatViewModel(socket: ChatSocket) : ViewModel() {
+    private val _messages = MutableStateFlow&lt;List&lt;Message&gt;&gt;(emptyList())
+    val messages = _messages.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            socket.incoming.collect { msg -&gt;
+                _messages.update { it + msg }     // grows forever
+            }
+        }
+    }
+}</pre></div>
+    <h4>Answer</h4>
+    <p>Not a leak — unbounded growth, which LeakCanary will never report. A busy channel accumulates every message for the session, each copy also allocating a new list (O(n²) allocation over the session, which is its own performance problem). <strong>Fix:</strong> keep a bounded window in memory and page older messages from the database; use a persistent list so appends do not copy. This is the pattern behind "memory usage increases gradually over several hours" in Part XIX.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Exercise 5</p>
+    <p class="qh">Find the leak</p>
+    <div class="code1"><div class="lab">Kotlin</div><pre>class MainActivity : ComponentActivity() {
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(c: Context, i: Intent) { refresh() }
+    }
+
+    override fun onCreate(s: Bundle?) {
+        super.onCreate(s)
+        applicationContext.registerReceiver(receiver, filter)
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // unregister forgotten
+    }
+}</pre></div>
+    <h4>Answer</h4>
+    <p>The receiver is an anonymous inner class capturing the Activity, registered against the <em>application</em> context — so it lives for the process lifetime and retains every Activity instance ever created. Registering with the Activity's own context would at least tie it to the Activity, and Android would log the "leaked receiver" warning at destruction. <strong>Fix:</strong> register in <code>onStart</code>, unregister in <code>onStop</code>, or use a lifecycle-aware wrapper — and prefer a <code>Flow</code> built with <code>callbackFlow</code> so cancellation handles it structurally.</p>
+  </div>
+
+  <div class="panel">
+    <h4>Part XII rapid recall</h4>
+    <ul>
+      <li>Every leak is a long-lived object referencing a short-lived one; learn the six paths and spot them in review.</li>
+      <li>Retained size, not shallow size, is what matters — one Activity retains its whole view tree.</li>
+      <li>Native and hardware-bitmap memory is outside the Java heap but inside the kill decision.</li>
+      <li><code>LaunchedEffect</code> for suspending work; <code>DisposableEffect</code> for register/unregister pairs.</li>
+      <li>Unbounded growth is not a leak and LeakCanary will not find it — bound every in-memory collection.</li>
+      <li>Bounded caches with memory-pressure response are design, not defects.</li>
+      <li>Run LeakCanary in instrumented CI so a new leak fails the build.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p11" data-p="p11"><span class="k">Previous</span><span class="t">← Part XI</span></a><a class="r" href="#p13" data-p="p13"><span class="k">Next</span><span class="t">Part XIII — Testing →</span></a></div>
+</section>

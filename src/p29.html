@@ -1,0 +1,151 @@
+<section class="page" id="p29">
+  <header class="phead">
+    <p class="eyebrow">Part XXIX</p>
+    <h1>Follow-Up <em>Trees</em></h1>
+    <p class="deck">Staff loops are rarely decided on the opening question. They are decided three questions deep, when the candidate runs out of mechanism and starts repeating vocabulary.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 173</span>The three-level rule</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:110px">Level</th><th style="min-width:150px">What it probes</th><th>How it usually sounds</th></tr></thead>
+    <tbody>
+      <tr><td>Level 1</td><td>Knowledge</td><td>"How would you design X?" — most candidates prepare only for this.</td></tr>
+      <tr><td>Level 2</td><td>Mechanism</td><td>"What happens when Y fails?" — separates people who have shipped it from people who have read about it.</td></tr>
+      <tr><td>Level 3</td><td>Judgment</td><td>"What if the constraint you assumed away is real?" — no rehearsed answer exists; this is the level that decides the loop.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><span class="lab">The three legitimate level-3 responses</span><p><strong>Reason from mechanism</strong> — derive an answer from what you know about how the system works, narrating the derivation. <strong>Name the trade-off space</strong> — "there are two families of answer here, and the choice depends on…". <strong>Say what you would do to find out</strong> — "I don't know; here is the experiment that would tell us in a day." All three score well. Guessing confidently scores worst of all, because a Staff engineer who bluffs is a liability.</p></div>
+
+  <h2><span class="cn">Chapter 174</span>Worked tree — offline-first</h2>
+  <p>The full expansion of the single most-asked mobile design question. Each answer is deliberately short, because in a real loop these come rapidly.</p>
+
+  <div class="q">
+    <p class="qt">Root question</p>
+    <p class="qh">"How would you design an offline-first application?"</p>
+    <p><strong>Answer:</strong> Local database as the single source of truth; the UI reads only from it and never awaits the network. Every mutation writes locally and appends to a durable outbox. A sync engine pushes the outbox, pulls a server-cursored delta, and resolves conflicts by a policy defined per data type. Push is a wake signal, not data.</p>
+
+    <h4>→ "What happens when two devices modify the same record?"</h4>
+    <p>Version-based optimistic concurrency: each client sends the version it last saw; the server rejects a stale write with a 409 and the current record. Resolution is per data type — last-write-wins for read state, per-field merge for profiles, server arbitration for inventory, conflict copy for documents. The client must retain the last-synced <em>base</em> version, not just its local mutation, or merging is impossible and you can only overwrite.</p>
+
+    <h4>→→ "What if the field-level merge produces something the user did not intend?"</h4>
+    <p>Then per-field merge was the wrong policy for that type. The test is whether fields are semantically independent — a name and an avatar are; two edits to a paragraph are not. For dependent content, keep both and surface the conflict. Silently producing a merged result the user never wrote is worse than showing them a conflict, because they cannot detect it.</p>
+
+    <h4>→ "What if synchronisation fails halfway through?"</h4>
+    <p>The cursor advances only inside the transaction that applies the page, so a crash resumes exactly where it stopped. The outbox drains one operation at a time with the operation marked in-flight; on startup, stale in-flight rows are reset to pending, because a crash mid-request leaves them stranded otherwise.</p>
+
+    <h4>→→ "The operation was actually applied server-side, but you crashed before recording the ack. Now you replay it."</h4>
+    <p>That is why the outbox row ID is the idempotency key. The replay carries the same key, the server recognises it and returns the original result rather than applying it twice. This is the unknown-outcome problem, and the client cannot solve it alone — it is a contract with the backend, which is why I would establish it globally rather than per endpoint.</p>
+
+    <h4>→→→ "The server only retains idempotency keys for 24 hours, and your outbox can be a week old."</h4>
+    <p>Then there is a correctness gap, and I would rather name it than paper over it. Three options: bound the outbox lifetime to the retention window and fail operations older than that explicitly; reconcile by business identity instead of by key — query whether an order for this cart already exists; or negotiate a longer retention for the operations where duplication is expensive. Which one depends on the cost of a duplicate: for a payment I would push hard for the third; for a "mark as read" I would accept the first.</p>
+
+    <h4>→ "What if the server returns duplicate events?"</h4>
+    <p>Application must be idempotent by construction: upserts keyed by server ID, never blind inserts. That also makes push-triggered fetches safe to run twice, which is why treating push as a signal rather than as data removes a whole class of bug.</p>
+
+    <h4>→ "What if the user logs out with pending writes?"</h4>
+    <p>A product decision that must be made before launch, and it is the one nobody thinks of. Options: block logout until the queue drains, warn and discard with an explicit confirmation, or complete the queue in the background before clearing. What is never acceptable is clearing local data with pending writes still queued — the user believes their work was saved. And the outbox must be user-scoped, or a queued write can be applied to the next account signed in on that device.</p>
+
+    <h4>→ "What if local storage is corrupted?"</h4>
+    <p>Detect on open. Preserve the outbox if it is readable — it contains work the user believes is saved — and rebuild everything else from the server. If the outbox itself is unreadable, that is a data-loss event: report it as one, tell the user specifically what was lost if you can determine it, and do not silently reset. Silent recovery is how corruption bugs go unnoticed for months.</p>
+
+    <h4>→ "How do you test all of this?"</h4>
+    <p>Four layers. A deterministic two-client harness with a fake server that can be told which write lands first, covering every conflict policy. Fault injection that kills the process at each await point in the sync loop. A fake clock for TTLs and retention. And a soak test at realistic data volume, because every sync bug I have seen hides at small scale.</p>
+
+    <h4>→→ "How would you roll it out to five million existing users?"</h4>
+    <p>Staged, with a shadow phase first: run the sync engine in read-only mode for a small cohort and compare its computed state against the server's without acting on it. That surfaces disagreement before any user data depends on it. Then enable writes for 1%, with halt criteria on conflict rate, sync-lag p95 and support contact rate. The bootstrap is the risky part — a user with 500k records cannot sync the way a test account with 500 does, so the migration needs a paged bootstrap with progressive availability, and I would explicitly test the largest accounts in the install base before rollout.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 175</span>Fifty follow-ups to expect, by category</h2>
+
+  <h4>State and lifecycle</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"What happens after process death?"</td><td>Tests whether the design distinguishes memory, saved state and disk.</td></tr>
+    <tr><td>"What does the user see during rotation?"</td><td>Tests <code>WhileSubscribed</code>, and whether the upstream restarts.</td></tr>
+    <tr><td>"Two screens showing the same data — one edits it."</td><td>Tests single source of truth.</td></tr>
+    <tr><td>"The user backgrounds the app mid-flow for an hour."</td><td>Tests token expiry, stale data, resumability.</td></tr>
+    <tr><td>"What if they force-quit?"</td><td>Tests durability versus in-memory state.</td></tr>
+  </tbody></table></div>
+
+  <h4>Failure and partial failure</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"One of your three requests fails — what renders?"</td><td>Per-section state versus a global loading flag.</td></tr>
+    <tr><td>"The network drops mid-write."</td><td>Idempotency, unknown outcome, UI honesty.</td></tr>
+    <tr><td>"The backend returns a 500 for ten minutes."</td><td>Backoff, jitter, circuit breaking, degraded mode.</td></tr>
+    <tr><td>"The response is malformed."</td><td>Parsing tolerance, unknown enum handling, error reporting.</td></tr>
+    <tr><td>"Wi-Fi to cellular mid-request."</td><td>Socket death, retry safety, HTTP/3 connection migration.</td></tr>
+    <tr><td>"Storage is full."</td><td>Write failure paths, cache eviction, user messaging.</td></tr>
+    <tr><td>"The token expires during five concurrent calls."</td><td>Single-flight refresh, stale-token comparison.</td></tr>
+  </tbody></table></div>
+
+  <h4>Scale</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"What breaks at 10× users?"</td><td>Usually a backend or fan-out concern — say which part is yours.</td></tr>
+    <tr><td>"10× data on the device?"</td><td>Bootstrap time, query plans, memory, eviction policy.</td></tr>
+    <tr><td>"10× engineers on this codebase?"</td><td>Boundaries, ownership, build time, review capacity.</td></tr>
+    <tr><td>"10× screens?"</td><td>Templates, navigation topology, DI graph, consistency mechanisms.</td></tr>
+    <tr><td>"What is the cost of this at scale?"</td><td>Telemetry volume, CDN egress, push fan-out, socket count.</td></tr>
+  </tbody></table></div>
+
+  <h4>Product and edge cases</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"A brand-new user with no data?"</td><td>Empty states, bootstrap, first-run performance.</td></tr>
+    <tr><td>"A user with five years of history?"</td><td>Pagination, storage quota, migration time.</td></tr>
+    <tr><td>"The user changes their device clock?"</td><td>Never trust client time for ordering or expiry.</td></tr>
+    <tr><td>"They install on a second device?"</td><td>Multi-device state, read convergence, notification dismissal.</td></tr>
+    <tr><td>"They uninstall and reinstall?"</td><td>What is recoverable, what is lost, what the user expects.</td></tr>
+    <tr><td>"The device is offline at first launch?"</td><td>Almost always broken in practice — a very common gap.</td></tr>
+    <tr><td>"Accessibility for this screen?"</td><td>Semantics, touch targets, font scaling, screen-reader order.</td></tr>
+    <tr><td>"Right-to-left and long translations?"</td><td>Layout assumptions, truncation, hardcoded strings.</td></tr>
+  </tbody></table></div>
+
+  <h4>Operations</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"How do you know this is broken in production?"</td><td>The single most-skipped question. Name a metric per failure mode.</td></tr>
+    <tr><td>"How would you roll this out?"</td><td>Staged, halt criteria, kill switch, cohort selection.</td></tr>
+    <tr><td>"How do you turn it off without a release?"</td><td>Remote config; if the answer is "we can't", that is the finding.</td></tr>
+    <tr><td>"What is your alert threshold, and who is paged?"</td><td>Ownership, not just instrumentation.</td></tr>
+    <tr><td>"How long until you detect a silent data problem?"</td><td>Sync lag, outbox depth, reconciliation counts.</td></tr>
+    <tr><td>"How do you debug this on a user's device?"</td><td>Breadcrumbs, remote logging with consent, targeted tracing.</td></tr>
+  </tbody></table></div>
+
+  <h4>Testing and quality</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"How do you test the concurrency here?"</td><td>Virtual time, deterministic interleavings, no <code>delay</code>.</td></tr>
+    <tr><td>"How do you test the process-death path?"</td><td>Saved-state unit tests plus instrumented restoration.</td></tr>
+    <tr><td>"How do you test conflict resolution?"</td><td>Two-client harness with controlled ordering.</td></tr>
+    <tr><td>"What would you deliberately not test?"</td><td>Tests judgment; "everything" is a weak answer.</td></tr>
+    <tr><td>"How do you keep this suite from becoming flaky?"</td><td>Injected clocks and dispatchers, no shared state, quarantine policy.</td></tr>
+  </tbody></table></div>
+
+  <h4>Organisational</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"Who owns this component?"</td><td>Unowned components are the Staff-level failure mode.</td></tr>
+    <tr><td>"How do you stop other teams from breaking it?"</td><td>Enforcement in build logic, not documentation.</td></tr>
+    <tr><td>"How would 40 engineers build this consistently?"</td><td>Templates, generators, lint, defaults.</td></tr>
+    <tr><td>"What if another team disagrees with this design?"</td><td>Evidence, absorbed cost, escalation path, disagree-and-commit.</td></tr>
+    <tr><td>"How long, realistically, and who does it?"</td><td>Estimation honesty; vague answers read as inexperience.</td></tr>
+    <tr><td>"What would you cut if you had half the time?"</td><td>Prioritisation under constraint; the answer reveals what you think is essential.</td></tr>
+  </tbody></table></div>
+
+  <h4>Meta</h4>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:52%">"What is the weakest part of your design?"</td><td>Self-critique. Having no answer is scored as not having thought about it.</td></tr>
+    <tr><td>"What would make you choose differently?"</td><td>The inversion condition — the single highest-value sentence in any design answer.</td></tr>
+    <tr><td>"What did you deliberately not build?"</td><td>Scope discipline.</td></tr>
+    <tr><td>"What would you do with another week?"</td><td>Prioritisation, and whether you know what is unresolved.</td></tr>
+    <tr><td>"What don't you know here?"</td><td>Calibrated honesty. Answer it directly and follow with how you would find out.</td></tr>
+  </tbody></table></div>
+
+  <div class="panel">
+    <h4>Part XXIX rapid recall</h4>
+    <ul>
+      <li>Level 1 knowledge, level 2 mechanism, level 3 judgment — prepare for all three.</li>
+      <li>At level 3: reason from mechanism, name the trade-off space, or say how you would find out. Never bluff.</li>
+      <li>"How would you know this is broken in production?" is the most-skipped follow-up in the set.</li>
+      <li>Volunteering the weakest part of your own design is a top-tier signal.</li>
+      <li>Practise trees, not questions — depth is where the level is decided.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p28" data-p="p28"><span class="k">Previous</span><span class="t">← Part XXVIII</span></a><a class="r" href="#p30" data-p="p30"><span class="k">Next</span><span class="t">Part XXX — Cheat Sheets →</span></a></div>
+</section>

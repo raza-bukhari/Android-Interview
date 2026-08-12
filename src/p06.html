@@ -1,0 +1,328 @@
+<section class="page" id="p6">
+  <header class="phead">
+    <p class="eyebrow">Part VI</p>
+    <h1>Jetpack <em>Compose</em></h1>
+    <p class="deck">The runtime, not the widget catalogue. Staff Compose questions live in composition, snapshots, stability and the three phases — because that is where the performance and correctness bugs are.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 39</span>The runtime: slot table and composition</h2>
+  <p>A composable function is not a normal function call. The Compose compiler rewrites it to accept a <code>Composer</code> and to emit <em>groups</em> into the <strong>slot table</strong> — a gap buffer that records, positionally, what was composed and what values were remembered.</p>
+  <p>Three consequences that explain most Compose behaviour:</p>
+  <ul>
+    <li><strong>Identity is positional.</strong> <code>remember</code> is keyed by the call site's position in the tree, not by variable name. Move the call inside an <code>if</code> and it is a different slot.</li>
+    <li><strong>Recomposition is scoped.</strong> The runtime invalidates the smallest enclosing <em>restartable</em> scope that read the changed state, not the whole tree. This is why reading state as late as possible is the core performance discipline.</li>
+    <li><strong>Composition is not the frame.</strong> Composition produces a description; layout and draw happen afterwards. A screen can be slow with almost no recomposition, because the cost is in measurement or drawing.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — unkeyed list identity</div><pre>Column {
+    messages.forEach { msg -&gt;
+        // Position-based identity. Insert at the head and
+        // every item's remembered state shifts down one.
+        MessageRow(msg)
+    }
+}
+
+LazyColumn {
+    items(messages) { MessageRow(it) }   // no key
+}</pre>
+      <p class="why">Prepending one item makes every subsequent slot mismatch: animation state, expanded/collapsed flags and scroll anchors attach to the wrong rows. In a <code>LazyColumn</code> it also defeats item reuse.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — stable keys</div><pre>LazyColumn {
+    items(
+        items = messages,
+        key = { it.id },                 // stable identity
+        contentType = { it.type },       // better reuse
+    ) { MessageRow(it) }
+}
+
+// Non-lazy loops:
+messages.forEach { msg -&gt;
+    key(msg.id) { MessageRow(msg) }
+}</pre>
+      <p class="why">Keys let the runtime move slots rather than recreate them, preserving remembered state and enabling correct item animations.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 40</span>The snapshot system</h2>
+  <p>Compose state is built on a multi-version concurrency control system. Each snapshot sees a consistent view of all state; writes are recorded per-snapshot and applied atomically. Reading a <code>State</code> object inside a composition registers the reading scope as an observer of that object.</p>
+  <p>Practical implications interviewers probe:</p>
+  <ul>
+    <li>You can safely read Compose state from a background thread inside <code>Snapshot.withMutableSnapshot</code>; the changes apply atomically or conflict.</li>
+    <li><code>snapshotFlow { }</code> converts state reads into a cold <code>Flow</code>, emitting when the values read inside it change — the correct bridge from Compose state to coroutine world.</li>
+    <li>A <code>MutableState</code> holding a <code>MutableList</code> does <em>not</em> notify on <code>list.add()</code>, because the state object itself never changed. This is the single most common "why didn't my UI update" bug.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — mutating inside an immutable holder</div><pre>var items by remember { mutableStateOf(mutableListOf&lt;Item&gt;()) }
+
+fun add(i: Item) {
+    items.add(i)      // no recomposition: the State never changed
+}</pre>
+      <p class="why">The reference is identical, so no invalidation is recorded. Worse, it works intermittently — an unrelated recomposition later shows the new items, so it looks like a race.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — observable list, or replace the value</div><pre>// Option A: observable collection
+val items = remember { mutableStateListOf&lt;Item&gt;() }
+items.add(i)                              // notifies
+
+// Option B: immutable value, replaced
+var items by remember { mutableStateOf(persistentListOf&lt;Item&gt;()) }
+items = items.add(i)                      // new reference
+
+// Option C (preferred for screen state): it lives in the
+// ViewModel as an immutable UiState, not in the composable.</pre>
+      <p class="why">Option C is the architectural answer: screen state belongs in a state holder, and the composable receives an immutable snapshot of it.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 41</span>Effects — which one, and why</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:170px">API</th><th>Runs</th><th>Use for / the bug it prevents</th></tr></thead>
+    <tbody>
+      <tr><td><code>LaunchedEffect(key)</code></td><td>Coroutine on entering composition; cancelled and restarted when <code>key</code> changes</td><td>Suspending work tied to composition. The bug: using <code>Unit</code> as the key when the work depends on a parameter.</td></tr>
+      <tr><td><code>DisposableEffect(key)</code></td><td>On enter; <code>onDispose</code> on leave or key change</td><td>Registering listeners, sensors, receivers. The bug: forgetting cleanup, which leaks.</td></tr>
+      <tr><td><code>SideEffect</code></td><td>After every <em>successful</em> composition</td><td>Publishing state to a non-Compose object. The bug: doing it inline in the composable body, which runs on failed compositions too.</td></tr>
+      <tr><td><code>produceState</code></td><td>Coroutine producing a <code>State</code></td><td>Converting a callback/suspend source into state.</td></tr>
+      <tr><td><code>rememberUpdatedState</code></td><td>Captures the latest value without restarting</td><td>A long-lived effect that must call the newest lambda. The bug it fixes: a stale callback in a timer.</td></tr>
+      <tr><td><code>derivedStateOf</code></td><td>Recomputes only when its <em>result</em> changes</td><td>Cheap derivation from rapidly-changing state. Misused, it costs more than it saves.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — stale lambda in a long-lived effect</div><pre>@Composable
+fun AutoDismiss(onDismiss: () -&gt; Unit) {
+    LaunchedEffect(Unit) {
+        delay(5_000)
+        onDismiss()      // captured on first composition
+    }
+}
+// If the parent recomposes with a new onDismiss
+// (a different navigation target), the OLD one fires.</pre>
+      <p class="why">Keying on <code>onDismiss</code> instead would restart the 5-second timer on every recomposition — the other half of the trap.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — rememberUpdatedState</div><pre>@Composable
+fun AutoDismiss(onDismiss: () -&gt; Unit) {
+    val current by rememberUpdatedState(onDismiss)
+    LaunchedEffect(Unit) {
+        delay(5_000)
+        current()        // always the latest
+    }
+}</pre>
+      <p class="why">The effect keeps running; the reference it calls is refreshed. This exact question appears in Compose interviews constantly.</p></div>
+  </div>
+
+  <div class="q">
+    <p class="qt">Interview question · the derivedStateOf trap</p>
+    <p class="qh">"When can <code>derivedStateOf</code> make performance <em>worse</em>?"</p>
+    <h4>Short answer</h4>
+    <p>When the derivation's result changes as often as its inputs. You then pay the snapshot-observation overhead and the extra state object for no reduction in recomposition.</p>
+    <h4>Deep explanation</h4>
+    <p><code>derivedStateOf</code> earns its cost when a high-frequency input maps to a low-frequency output — the canonical case being <code>scrollState.firstVisibleItemIndex &gt; 0</code>, where the index changes on every frame of a scroll but the boolean changes twice per session. If instead you write <code>derivedStateOf { items.filter { it.matches(query) } }</code>, the list changes whenever the query changes, so the output frequency equals the input frequency: you have added an observation layer and an allocation with no benefit. Worse, people reach for it to avoid recomputing an <em>expensive</em> derivation, which it does not do — it still recomputes on every input change; it only suppresses <em>downstream invalidation</em>. For expensive work you want <code>remember(key)</code>, or better, the work moved out of composition entirely.</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"So what's the rule?" — Use it when reads are frequent, the derivation is cheap, and the output is coarse relative to the input.</li>
+      <li>"How would you verify it helped?" — Layout Inspector recomposition counts before and after, on the specific composable you expected to stop recomposing. If the count is unchanged, remove it.</li>
+      <li>"What about filtering a big list per keystroke?" — Not a Compose problem. That belongs in the ViewModel behind <code>debounce</code> and <code>flatMapLatest</code>, off the main thread.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 42</span>Stability, skipping, and strong skipping</h2>
+  <p>The runtime skips recomposing a composable when all its parameters are <em>equal</em> and <em>stable</em>. Stable means: the type's <code>equals</code> is consistent, its public properties do not change without notifying composition, and all its public property types are themselves stable.</p>
+  <p>The compiler infers stability. It cannot infer it for types it cannot see — which historically made every class from a module without the Compose compiler unstable, including <code>List</code>, <code>Set</code> and <code>Map</code> (the interface could be backed by a mutable implementation).</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — unstable parameters</div><pre>data class UiState(
+    val items: List&lt;Item&gt;,          // interface: unstable
+    val onClick: (Item) -&gt; Unit,     // new lambda each recomposition
+    val config: ConfigFromOtherModule // not Compose-compiled: unstable
+)
+
+@Composable fun Screen(state: UiState) { ... }
+// Never skips. Recomposes on every parent recomposition.</pre>
+      <p class="why">One unstable parameter makes the whole call unskippable, and the effect cascades down the subtree.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — stable by construction</div><pre>@Immutable
+data class UiState(
+    val items: ImmutableList&lt;Item&gt;,  // kotlinx.collections.immutable
+    val config: Config,
+)
+
+@Composable
+fun Screen(
+    state: UiState,
+    onClick: (Item) -&gt; Unit,         // hoisted, remembered by caller
+)
+
+// For third-party types you cannot annotate:
+// stability configuration file (Compose compiler option)
+// listing them as stable.</pre>
+      <p class="why"><code>ImmutableList</code> is a real type the compiler can reason about. <code>@Immutable</code> is a promise you make and the compiler trusts — breaking it produces stale UI that is very hard to debug.</p></div>
+  </div>
+
+  <div class="note"><span class="lab">Strong skipping — what changed</span><p>With strong skipping mode (default from Compose 1.3.x-era compiler releases onward and standard in current toolchains), composables with unstable parameters become skippable using <em>instance equality</em> for unstable types, and lambdas are automatically remembered. This removes most of the manual <code>@Stable</code> work. Two things it does not remove: unstable types still compare by reference, so a newly-allocated equal object still triggers recomposition; and it does not fix a <code>List</code> you mutate in place. The L4 answer notes that strong skipping reduces the tax but does not make stability irrelevant — you still model state as immutable values.</p></div>
+
+  <h2><span class="cn">Chapter 43</span>State hoisting and screen architecture</h2>
+  <div class="code1"><div class="lab">The screen contract that scales across 200 screens</div><pre>// 1. State: immutable, exhaustive, no events inside.
+@Immutable
+data class CartUiState(
+    val lines: ImmutableList&lt;CartLine&gt; = persistentListOf(),
+    val total: Money = Money.ZERO,
+    val isSubmitting: Boolean = false,
+    val error: CartError? = null,
+)
+
+// 2. Stateful entry point: knows about the ViewModel.
+@Composable
+fun CartRoute(
+    onCheckout: (OrderId) -&gt; Unit,
+    viewModel: CartViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { e -&gt;
+            when (e) { is CartEvent.Checkout -&gt; onCheckout(e.orderId) }
+        }
+    }
+    CartScreen(state = state, onIntent = viewModel::onIntent)
+}
+
+// 3. Stateless UI: previewable, screenshot-testable, no DI.
+@Composable
+fun CartScreen(
+    state: CartUiState,
+    onIntent: (CartIntent) -&gt; Unit,
+    modifier: Modifier = Modifier,
+) { /* pure UI */ }</pre></div>
+  <p>Why this shape rather than a single composable: the stateless layer can be rendered in a <code>@Preview</code> and a screenshot test with a hand-built state, which is the only affordable way to test 200 screens' visual states; and the route layer isolates every framework dependency, so the UI module does not depend on Hilt or navigation.</p>
+
+  <h4>CompositionLocal — when it is right</h4>
+  <p>Legitimate uses: theme, typography, density, a locale-aware formatter — things that are ambient, rarely change, and would pollute every signature. Illegitimate: passing a ViewModel, a repository, or screen data. The test: if a reader of the composable would be surprised that the value can change the output, it should be a parameter. Implicit data flow is the thing Compose's model exists to remove.</p>
+
+  <h2><span class="cn">Chapter 44</span>The three phases: composition, layout, drawing</h2>
+  <p>Each frame runs up to three phases. State read in a <em>later</em> phase does not invalidate the earlier ones — which is the single highest-leverage Compose performance technique.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — reading scroll state in composition</div><pre>val offset = scrollState.firstVisibleItemScrollOffset
+
+Box(
+    Modifier.offset(y = (offset / 2).dp)   // recomposes every frame
+        .alpha(1f - offset / 500f)
+)</pre>
+      <p class="why">The state is read during composition, so every scroll pixel recomposes this subtree — composition, layout <em>and</em> draw, sixty times a second.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — defer the read to layout/draw</div><pre>Box(
+    Modifier
+        .offset { IntOffset(0, scrollState.offset / 2) }  // lambda: layout phase
+        .graphicsLayer { alpha = 1f - scrollState.offset / 500f } // draw phase
+)</pre>
+      <p class="why">The lambda-taking overloads read the state inside the layout or draw phase, so only that phase re-runs. Same visual result, a fraction of the cost — and it is the standard answer to "this parallax scroll is janky."</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 45</span>Lazy layouts and a 10,000-item feed</h2>
+  <p>The question "how would you optimise a <code>LazyColumn</code> rendering 10,000 items?" has a wrong premise, and saying so is the first point scored: you never render 10,000 items — lazy layouts compose only what is visible. If it is slow, the problem is per-item cost, key stability, or something above the list.</p>
+  <ol>
+    <li><strong>Do not page the whole dataset into memory.</strong> Use Paging 3 so the list holds a window, not the corpus.</li>
+    <li><strong>Provide <code>key</code> and <code>contentType</code>.</strong> Keys preserve state and enable animation; content types make reuse effective across heterogeneous rows.</li>
+    <li><strong>Make item state immutable and stable</strong>, so scrolling does not recompose visible items.</li>
+    <li><strong>Fix the item's own cost:</strong> no allocation in the item body, no date formatting per frame, image sizes constrained so decode does not resize on the main thread.</li>
+    <li><strong>Never nest a scrollable in the same direction</strong> — a <code>LazyColumn</code> inside a vertically-scrolling <code>Column</code> forces infinite-constraint measurement and composes every item.</li>
+    <li><strong>Baseline profile</strong> the scroll path, otherwise the first scroll runs interpreted and janks on exactly the impression that matters.</li>
+  </ol>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — expensive work in the item body</div><pre>items(rows, key = { it.id }) { row -&gt;
+    val fmt = SimpleDateFormat("dd MMM", Locale.getDefault())
+    Text(fmt.format(row.date))            // alloc + parse per item per frame
+    AsyncImage(model = row.url)           // unbounded size
+}</pre>
+      <p class="why">Formatter allocation and image decode dominate the frame. This is what "the list is janky but recomposition counts look fine" actually means.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — precomputed, bounded</div><pre>// Formatting happens once, in the mapper, off the main thread:
+data class RowUi(val id: String, val dateLabel: String, val url: String)
+
+items(rows, key = { it.id }, contentType = { it.type }) { row -&gt;
+    Text(row.dateLabel)
+    AsyncImage(
+        model = ImageRequest.Builder(ctx).data(row.url)
+            .size(width = 320, height = 180)   // decode to display size
+            .crossfade(false)
+            .build(),
+        modifier = Modifier.size(160.dp, 90.dp),
+    )
+}</pre>
+      <p class="why">Move every derivation out of the item body into the state mapping. The item body should read fields and emit UI — nothing else.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 46</span>Recomposition debugging</h2>
+  <div class="code1"><div class="lab">Compose compiler metrics — the first tool, not the last</div><pre>// build.gradle.kts
+composeCompiler {
+    reportsDestination = layout.buildDirectory.dir("compose_reports")
+    metricsDestination = layout.buildDirectory.dir("compose_metrics")
+}
+
+// Produces, per module:
+//   *-composables.txt  → restartable / skippable per function
+//   *-classes.txt      → stable / unstable per class, with the reason
+//
+// Read the classes file first: one unstable class usually
+// explains a dozen unskippable composables.</pre></div>
+
+  <div class="q">
+    <p class="qt">Interview question · production debugging</p>
+    <p class="qh">"A Compose screen is slow, but Layout Inspector shows a reasonable recomposition count. What now?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>Because the reflexive Compose answer is "reduce recomposition," and a candidate who has only that answer is stuck. The question tests whether they understand the three phases and can profile rather than guess.</p>
+    <h4>Deep answer <span class="chip c4">L4</span></h4>
+    <p>"Recomposition count only measures the first phase. I'd get a system trace — Perfetto or the Studio profiler — on a physical mid-tier device with a release build, and look at where the main thread's frame time actually goes. Five candidates in rough order of frequency:</p>
+    <ul>
+      <li><strong>Layout cost.</strong> Deeply nested or intrinsic-measuring layouts, or a <code>SubcomposeLayout</code> in a hot path. Intrinsics can force multiple measurement passes; nested weights compound it.</li>
+      <li><strong>Draw cost.</strong> Overdraw, large shadows/elevation, blur, or a Canvas re-rendering complex paths every frame. <code>graphicsLayer</code> with a cached layer often fixes this.</li>
+      <li><strong>Work off the composition path entirely.</strong> Main-thread image decode, a synchronous disk read in a mapper, a <code>Flow</code> collecting on <code>Main</code> and doing real work in its lambda.</li>
+      <li><strong>Missing baseline profile.</strong> If it is slow only for the first few seconds or the first scroll, this is almost always it — JIT versus AOT.</li>
+      <li><strong>Recomposition <em>cost</em> rather than count.</strong> Twenty recompositions is fine unless each one allocates a list of 5,000 items.</li>
+    </ul>
+    <p>The verification discipline matters as much as the fix: I'd add a Macrobenchmark for the scroll journey and gate the improvement in CI, so the regression cannot silently return. That's the difference between fixing this instance and fixing the class."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"How do you measure jank in the field, not the lab?" — <code>JankStats</code>, and Play Vitals' frame-timing metrics segmented by device tier. Lab numbers on a flagship hide the problem entirely.</li>
+      <li>"What's your device policy for performance work?" — Measure on the 25th-percentile device in your install base, not the newest. Most performance bugs are invisible on a current Pixel.</li>
+      <li>"Would you ever move UI back to Views for performance?" — Rarely, and only with a measurement. The legitimate cases are highly specialised custom rendering; the illegitimate case is a Compose screen nobody profiled.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 47</span>Testing, semantics, and accessibility</h2>
+  <p>Compose's semantics tree is simultaneously the accessibility tree and the test tree — a design decision with a useful consequence: <strong>a screen that is hard to test is usually inaccessible.</strong> Treating them as the same problem is a Staff framing worth stating.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — untestable and inaccessible</div><pre>Box(
+    Modifier
+        .size(32.dp)                    // below 48dp touch target
+        .clickable { onDelete() }       // no role, no label
+) { Icon(Icons.Default.Delete, contentDescription = null) }
+
+// Test must resort to:
+composeRule.onNodeWithTag("del_3").performClick()</pre>
+      <p class="why">Screen readers announce nothing, the target fails WCAG's minimum size, and the test is coupled to an arbitrary tag that says nothing about intent.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — semantics carry meaning</div><pre>IconButton(                             // 48dp target, Role.Button
+    onClick = onDelete,
+    modifier = Modifier.semantics {
+        contentDescription = "Delete ${item.name}"
+    }
+) { Icon(Icons.Default.Delete, contentDescription = null) }
+
+// Test reads like the user's intent:
+composeRule.onNodeWithContentDescription("Delete Milk")
+    .assertHasClickAction()
+    .performClick()</pre>
+      <p class="why">The same annotation serves TalkBack and the test. Note <code>contentDescription = null</code> on the inner icon: the button already carries the label, and duplicating it makes TalkBack say it twice.</p></div>
+  </div>
+
+  <div class="panel">
+    <h4>Part VI rapid recall</h4>
+    <ul>
+      <li>Slot-table identity is positional; <code>key</code> is what makes it semantic.</li>
+      <li>Mutating a collection inside <code>mutableStateOf</code> does not notify — use <code>mutableStateListOf</code> or replace the value.</li>
+      <li><code>rememberUpdatedState</code> for a fresh lambda in a long-lived effect; keying on the lambda restarts it instead.</li>
+      <li><code>derivedStateOf</code> only pays when a high-frequency input yields a low-frequency output.</li>
+      <li>Strong skipping reduces the stability tax but does not replace immutable state modelling.</li>
+      <li>Route (stateful) / Screen (stateless) split is what makes previews and screenshot tests affordable.</li>
+      <li>Defer state reads to layout (<code>Modifier.offset {}</code>) or draw (<code>graphicsLayer {}</code>) to skip phases.</li>
+      <li>Slow screen with low recomposition = layout, draw, main-thread work, or a missing baseline profile.</li>
+      <li>The semantics tree is the accessibility tree; test through it, not through tags.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p5" data-p="p5"><span class="k">Previous</span><span class="t">← Part V</span></a><a class="r" href="#p7" data-p="p7"><span class="k">Next</span><span class="t">Part VII — Architecture →</span></a></div>
+</section>

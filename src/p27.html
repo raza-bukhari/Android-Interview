@@ -1,0 +1,397 @@
+<section class="page" id="p27">
+  <header class="phead">
+    <p class="eyebrow">Part XXVII</p>
+    <h1>Rapid <em>Fire</em></h1>
+    <p class="deck">Around 400 questions banded by the answer length they deserve. The banding is the training: mismatching answer length to question size is itself a calibration failure, and interviewers notice it within two questions.</p>
+  </header>
+
+  <div class="note"><span class="lab">How to use this</span><p>Cover the right column. Say your answer out loud, timed to the band. A ten-second question answered in ninety seconds reads as unfocused; a three-minute question answered in ten reads as shallow. Both are correctable in a week of practice, and neither is correctable by reading.</p></div>
+
+  <h2><span class="cn">Chapter 164</span>Ten-second answers</h2>
+  <p>Roughly 300 definitions and distinctions that must be instant. Hesitation here costs credibility for the rest of the round, because the interviewer starts wondering what else is shaky.</p>
+
+  <h3>Kotlin language</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%"><code>val</code> vs <code>const val</code></td><td>Runtime vs compile-time constant; <code>const</code> is inlined at call sites, must be top-level or in an object.</td></tr>
+    <tr><td><code>lateinit</code> vs <code>by lazy</code></td><td>Mutable and externally set, throws if unset · immutable and computed on first access.</td></tr>
+    <tr><td>Why can't <code>lateinit</code> be primitive?</td><td>No null sentinel to represent "unset".</td></tr>
+    <tr><td>Can <code>lazy</code> be used with <code>var</code>?</td><td>No — the delegate has no setter.</td></tr>
+    <tr><td><code>lazy</code> thread-safety modes</td><td><code>SYNCHRONIZED</code> (default), <code>PUBLICATION</code>, <code>NONE</code>.</td></tr>
+    <tr><td><code>==</code> vs <code>===</code></td><td>Structural equality vs referential identity.</td></tr>
+    <tr><td>What is a platform type?</td><td>A type from unannotated Java where nullability is unenforced (<code>String!</code>).</td></tr>
+    <tr><td>Four NPE sources in Kotlin</td><td>Platform types, reflective deserialisation, <code>lateinit</code>, <code>!!</code>.</td></tr>
+    <tr><td><code>?.let</code> vs <code>if (x != null)</code></td><td><code>let</code> captures the value, so it is smart-cast-safe for mutable properties.</td></tr>
+    <tr><td>Why won't a <code>var</code> property smart-cast?</td><td>It could change between the check and the use.</td></tr>
+    <tr><td><code>out</code> vs <code>in</code></td><td>Producer (return position) vs consumer (parameter position).</td></tr>
+    <tr><td>What is a star projection?</td><td>"Some unknown type" — safe to read as the upper bound, unsafe to write.</td></tr>
+    <tr><td>Declaration-site vs use-site variance</td><td>Declared once on the type vs declared per usage (<code>List&lt;out T&gt;</code> at a call).</td></tr>
+    <tr><td>What does <code>reified</code> require?</td><td><code>inline</code> — the type is substituted at each call site.</td></tr>
+    <tr><td>Cost of a large <code>inline reified</code> function</td><td>Body duplicated at every call site: method count and APK size.</td></tr>
+    <tr><td><code>noinline</code> — when?</td><td>You need to store, pass on, or null the lambda.</td></tr>
+    <tr><td><code>crossinline</code> — when?</td><td>The lambda is invoked from another context; non-local return must be forbidden.</td></tr>
+    <tr><td>When does a value class box?</td><td>Generics, nullability, interface positions.</td></tr>
+    <tr><td><code>@JvmInline</code> — why needed?</td><td>Marks the value class for the JVM backend's inline representation.</td></tr>
+    <tr><td><code>sealed class</code> vs <code>sealed interface</code></td><td>Interface allows a subtype to implement several sealed hierarchies.</td></tr>
+    <tr><td><code>sealed</code> vs <code>enum</code></td><td>Sealed subtypes carry different data; enum entries are fixed singletons.</td></tr>
+    <tr><td><code>data object</code> vs <code>object</code></td><td><code>data object</code> gives a sane <code>toString()</code> and proper equality.</td></tr>
+    <tr><td>What does adding a sealed subtype break?</td><td>Binary compatibility for separately-compiled exhaustive <code>when</code>.</td></tr>
+    <tr><td>Risk of <code>data class copy()</code></td><td>Bypasses factory-level invariants.</td></tr>
+    <tr><td>What does <code>componentN()</code> enable?</td><td>Destructuring — and it is positional, so reordering fields breaks callers silently.</td></tr>
+    <tr><td>Delegation trap</td><td>Overriding a member does not affect calls made inside the delegate.</td></tr>
+    <tr><td><code>apply</code> vs <code>also</code></td><td>Both return the receiver; <code>apply</code> uses <code>this</code>, <code>also</code> uses <code>it</code>.</td></tr>
+    <tr><td><code>let</code> vs <code>run</code></td><td>Both return the lambda result; <code>let</code> uses <code>it</code>, <code>run</code> uses <code>this</code>.</td></tr>
+    <tr><td>When does a Sequence beat an Iterable?</td><td>Long chain, large source, short-circuiting terminal.</td></tr>
+    <tr><td>Which operator defeats sequence laziness?</td><td><code>sorted</code> — it must materialise everything.</td></tr>
+    <tr><td>Cheapest ordering optimisation in a chain?</td><td>Filter before map.</td></tr>
+    <tr><td>Is Kotlin's <code>List</code> immutable?</td><td>Read-only interface over <code>java.util.List</code> — mutable from Java.</td></tr>
+    <tr><td>Is <code>internal</code> a security boundary?</td><td>No — public in bytecode with a mangled name.</td></tr>
+    <tr><td><code>@JvmStatic</code> — why?</td><td>Makes an object member callable as a static from Java.</td></tr>
+    <tr><td><code>@JvmOverloads</code> — why?</td><td>Generates overloads so Java callers get default arguments.</td></tr>
+    <tr><td><code>@Throws</code> — why?</td><td>Kotlin has no checked exceptions; Java callers otherwise get no signal.</td></tr>
+    <tr><td>What is <code>@DslMarker</code> for?</td><td>Prevents calling an outer builder's methods from an inner scope.</td></tr>
+    <tr><td>Operator overloading smell</td><td>Anything not arithmetic-shaped; it becomes ungreppable.</td></tr>
+    <tr><td>What does <code>contract</code> buy?</td><td>Lets the compiler smart-cast across a function boundary.</td></tr>
+    <tr><td>Difference between <code>Nothing</code> and <code>Unit</code></td><td><code>Nothing</code> has no instances (the function never returns normally); <code>Unit</code> has exactly one.</td></tr>
+  </tbody></table></div>
+
+  <h3>Coroutines</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%"><code>launch</code> vs <code>async</code></td><td>Fire-and-forget vs returns a <code>Deferred</code>.</td></tr>
+    <tr><td><code>withContext</code> vs <code>async{}.await()</code></td><td>Same result; <code>withContext</code> is cheaper for a single switch.</td></tr>
+    <tr><td>What is a <code>CoroutineContext</code>?</td><td>An immutable indexed set: Job, Dispatcher, Name, ExceptionHandler.</td></tr>
+    <tr><td>What does a child inherit?</td><td>The parent context, with its own Job substituted.</td></tr>
+    <tr><td>What cancels a coroutine?</td><td>Cancelling its job or scope — cooperatively, at the next suspension point.</td></tr>
+    <tr><td>Why is a CPU loop uncancellable?</td><td>It never suspends. Add <code>ensureActive()</code> or <code>yield()</code>.</td></tr>
+    <tr><td><code>ensureActive()</code> vs <code>yield()</code></td><td>Check only vs check plus give up the thread.</td></tr>
+    <tr><td>Never catch which exception?</td><td><code>CancellationException</code> — rethrow it.</td></tr>
+    <tr><td>Where does cleanup go after cancellation?</td><td><code>finally</code>, with <code>withContext(NonCancellable)</code> if it must suspend.</td></tr>
+    <tr><td>What does <code>SupervisorJob</code> change?</td><td>A child's failure does not cancel siblings.</td></tr>
+    <tr><td>Does <code>launch(SupervisorJob())</code> supervise?</td><td>No — supervision comes from the scope.</td></tr>
+    <tr><td><code>coroutineScope</code> vs <code>supervisorScope</code></td><td>Sibling failure cancels all vs siblings continue.</td></tr>
+    <tr><td>When does an <code>async</code> failure surface?</td><td>In a plain scope, at throw time (cancels parent); under a supervisor, at <code>await()</code>.</td></tr>
+    <tr><td>Where does an uncaught <code>launch</code> exception go?</td><td>Nearest <code>CoroutineExceptionHandler</code>, else the thread's default handler.</td></tr>
+    <tr><td>Does a handler on a child work?</td><td>No — it must be installed on the scope or the root coroutine.</td></tr>
+    <tr><td><code>Dispatchers.IO</code> vs <code>Default</code></td><td>Blocking I/O (elastic, 64+) vs CPU-bound (CPU-count sized). Shared pool.</td></tr>
+    <tr><td>What is <code>Main.immediate</code>?</td><td>Skips re-posting when already on the main thread — what <code>viewModelScope</code> uses.</td></tr>
+    <tr><td><code>limitedParallelism(n)</code> — why?</td><td>Bound a subsystem's concurrency without a separate pool.</td></tr>
+    <tr><td>When is <code>Unconfined</code> legitimate?</td><td>Rarely — some tests and operator implementations.</td></tr>
+    <tr><td>Is Mutex reentrant?</td><td>No — nested <code>withLock</code> on the same mutex deadlocks.</td></tr>
+    <tr><td><code>Mutex</code> vs <code>ReentrantLock</code> in a coroutine</td><td>Mutex suspends; the lock blocks a thread.</td></tr>
+    <tr><td>What does <code>MutableStateFlow.update</code> do?</td><td>CAS loop — retries on conflict, so no lost updates.</td></tr>
+    <tr><td><code>runBlocking</code> in production?</td><td>Only <code>main()</code> and tests; never the main thread.</td></tr>
+    <tr><td><code>viewModelScope</code>'s context</td><td><code>SupervisorJob</code> + <code>Dispatchers.Main.immediate</code>.</td></tr>
+    <tr><td>When is <code>lifecycleScope</code> cancelled?</td><td><code>onDestroy</code> — not on stop.</td></tr>
+    <tr><td>What is a <code>Semaphore</code> used for?</td><td>Bounding concurrency; use <code>withPermit</code> so cancellation releases it.</td></tr>
+    <tr><td>What does <code>select</code> do?</td><td>Waits on several suspending sources, taking the first to complete.</td></tr>
+    <tr><td><code>awaitAll</code> vs sequential <code>await</code></td><td>Same concurrency; <code>awaitAll</code> fails fast on the first failure.</td></tr>
+  </tbody></table></div>
+
+  <h3>Flow</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%">Cold vs hot</td><td>Cold runs per collector; hot emits regardless of collectors.</td></tr>
+    <tr><td>Five collectors on a cold flow?</td><td>Five executions — unless shared.</td></tr>
+    <tr><td><code>flowOn</code> affects what?</td><td>Everything upstream of it.</td></tr>
+    <tr><td><code>catch</code> operator sees what?</td><td>Upstream failures only.</td></tr>
+    <tr><td>Why can't you <code>withContext</code> around <code>emit</code>?</td><td>Context preservation — it throws "Flow invariant is violated".</td></tr>
+    <tr><td>Why not <code>try/catch</code> around <code>emit</code>?</td><td>Exception transparency — it would swallow downstream failures.</td></tr>
+    <tr><td><code>conflate</code> vs <code>buffer</code></td><td>Drop intermediates vs keep them in a buffer.</td></tr>
+    <tr><td><code>debounce</code> vs <code>sample</code></td><td>Wait for silence vs emit the latest at a fixed rate.</td></tr>
+    <tr><td><code>flatMapLatest</code> vs <code>flatMapMerge</code> vs <code>flatMapConcat</code></td><td>Cancel previous · concurrent · sequential and ordered.</td></tr>
+    <tr><td><code>combine</code> vs <code>zip</code></td><td>Emit on any change (latest of each) vs pair emissions one-to-one.</td></tr>
+    <tr><td><code>stateIn</code> vs <code>shareIn</code></td><td><code>stateIn</code> needs an initial value and conflates; <code>shareIn</code> does not.</td></tr>
+    <tr><td>Why <code>WhileSubscribed(5000)</code>?</td><td>Survives a configuration change without keeping the upstream alive in the background.</td></tr>
+    <tr><td>What does <code>replayExpirationMillis</code> control?</td><td>How long the cached value is kept after the upstream stops.</td></tr>
+    <tr><td><code>SharingStarted.Eagerly</code> risk</td><td>Upstream runs while backgrounded — battery and network.</td></tr>
+    <tr><td>What happens to an error in a shared flow?</td><td>Terminates it for every collector.</td></tr>
+    <tr><td><code>callbackFlow</code> vs <code>channelFlow</code></td><td>Both allow concurrent emission; <code>callbackFlow</code> requires <code>awaitClose</code>.</td></tr>
+    <tr><td>What does <code>awaitClose</code> do?</td><td>Keeps the flow alive and provides the unregistration hook.</td></tr>
+    <tr><td>StateFlow equality behaviour</td><td>Conflated and distinct-until-changed by <code>equals</code>.</td></tr>
+    <tr><td>Why is StateFlow wrong for events?</td><td>It drops intermediates and dedupes identical consecutive values.</td></tr>
+    <tr><td>SharedFlow <code>replay &gt; 0</code> failure mode</td><td>Re-fires old events to a new collector after rotation.</td></tr>
+    <tr><td>Channel vs SharedFlow for events</td><td>Exactly-once to one consumer vs broadcast with possible loss.</td></tr>
+    <tr><td><code>receiveAsFlow</code> vs <code>consumeAsFlow</code></td><td>Multiple collectors share the channel vs the channel is cancelled on completion.</td></tr>
+    <tr><td>How do you make a Flow lifecycle-aware?</td><td><code>repeatOnLifecycle</code> or <code>collectAsStateWithLifecycle</code>.</td></tr>
+    <tr><td>What does <code>onEach</code> not do?</td><td>It does not collect — a flow with only <code>onEach</code> never runs.</td></tr>
+    <tr><td><code>distinctUntilChanged</code> caveat</td><td>Uses <code>equals</code>; a data class with a changing timestamp defeats it.</td></tr>
+  </tbody></table></div>
+
+  <h3>Android platform</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%">What survives process death?</td><td><code>SavedStateHandle</code>, <code>rememberSaveable</code>, disk.</td></tr>
+    <tr><td>What survives rotation?</td><td>ViewModel, plus everything above.</td></tr>
+    <tr><td>What survives nothing?</td><td>Singleton in-memory state, in-flight coroutines, static caches.</td></tr>
+    <tr><td>Test process death how?</td><td><code>adb shell am kill</code>, then return via Recents.</td></tr>
+    <tr><td>Why not <code>am force-stop</code>?</td><td>Clears the task — you get a fresh launch, not a restoration.</td></tr>
+    <tr><td>Is "don't keep activities" equivalent?</td><td>No — the process survives, so ViewModels and singletons do too.</td></tr>
+    <tr><td>When is <code>onCleared()</code> called?</td><td>When the owner finishes — not on configuration change.</td></tr>
+    <tr><td>What is zygote?</td><td>The pre-warmed VM your process forks from; shares framework pages copy-on-write.</td></tr>
+    <tr><td>Binder transaction limit</td><td>~1 MB per process, shared across in-flight transactions.</td></tr>
+    <tr><td>Common <code>TransactionTooLargeException</code> cause</td><td>Oversized <code>onSaveInstanceState</code> bundle or Intent extra.</td></tr>
+    <tr><td>What runs on the main thread?</td><td>Everything: lifecycle callbacks, input, view invalidation, your <code>post</code>.</td></tr>
+    <tr><td>What is Choreographer?</td><td>Runs frame callbacks on VSYNC: input → animation → traversal.</td></tr>
+    <tr><td>Frame budget at 60/90/120 Hz</td><td>16.7 / 11.1 / 8.3 ms.</td></tr>
+    <tr><td>Input-dispatch ANR threshold</td><td>~5 seconds.</td></tr>
+    <tr><td>Foreground-service start ANR</td><td>~20 seconds.</td></tr>
+    <tr><td>Play's ANR bad-behaviour threshold</td><td>0.47% of daily sessions.</td></tr>
+    <tr><td>Which launch mode clears the stack?</td><td><code>singleTask</code>.</td></tr>
+    <tr><td>What must <code>singleTop</code> handle?</td><td><code>onNewIntent</code> — otherwise the new intent's data is ignored.</td></tr>
+    <tr><td>Default PendingIntent flag</td><td><code>FLAG_IMMUTABLE</code>, with an explicit component.</td></tr>
+    <tr><td>When is <code>FLAG_MUTABLE</code> required?</td><td>Direct-reply notifications and some Bubbles APIs.</td></tr>
+    <tr><td>What is intent redirection?</td><td>A mutable PendingIntent wrapping an implicit intent, filled in by an attacker.</td></tr>
+    <tr><td>Why is the share sheet empty on Android 11+?</td><td>Package visibility — declare <code>&lt;queries&gt;</code>.</td></tr>
+    <tr><td>Notification permission since?</td><td>Android 13, runtime-granted.</td></tr>
+    <tr><td>What is Doze?</td><td>Deferred network and jobs when the device is idle; high-priority FCM still wakes.</td></tr>
+    <tr><td>App Standby buckets affect what?</td><td>How often deferred work and alarms are allowed to run.</td></tr>
+    <tr><td>WorkManager's guarantee</td><td>Eventually, surviving process death and reboot — never "soon".</td></tr>
+    <tr><td>Unique work policies</td><td><code>KEEP</code> vs <code>REPLACE</code> (one-time), <code>UPDATE</code> for periodic.</td></tr>
+    <tr><td>Why do foreground services need a type?</td><td>Policy enforcement — an unjustified type fails Play review.</td></tr>
+    <tr><td>Exact alarms require?</td><td>A special permission, and a policy-defensible use case.</td></tr>
+    <tr><td>Which context for a singleton?</td><td>Application.</td></tr>
+    <tr><td>Which context for a dialog?</td><td>Activity — it needs the themed, windowed context.</td></tr>
+    <tr><td>What is <code>FLAG_SECURE</code> for?</td><td>Blocks screenshots and hides content in the recents preview.</td></tr>
+    <tr><td>What does <code>reportFullyDrawn()</code> do?</td><td>Marks TTFD so time-to-usable is measurable.</td></tr>
+  </tbody></table></div>
+
+  <h3>Jetpack</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%">Why does ViewModel exist?</td><td>To hold state across configuration change without leaking the Activity.</td></tr>
+    <tr><td>Why never hold a Context in a ViewModel?</td><td>It outlives the Activity by design.</td></tr>
+    <tr><td>Nav-graph-scoped ViewModel — when?</td><td>Multi-screen flows: checkout, onboarding.</td></tr>
+    <tr><td>Activity-scoped shared ViewModel risk</td><td>Becomes global mutable state nobody owns.</td></tr>
+    <tr><td><code>repeatOnLifecycle</code> vs <code>launchWhenStarted</code></td><td>Cancels the producer vs only pauses delivery.</td></tr>
+    <tr><td>Is a Room suspend DAO main-safe?</td><td>Yes — no <code>withContext(IO)</code> needed.</td></tr>
+    <tr><td>Is a Retrofit suspend function main-safe?</td><td>Yes — it dispatches to OkHttp's pool.</td></tr>
+    <tr><td>Room observable queries invalidate on?</td><td>Any write to a table the query touches.</td></tr>
+    <tr><td>Why <code>@Transaction</code> on a relation query?</td><td>It issues several statements; without it you can observe a torn read.</td></tr>
+    <tr><td>What does exporting the Room schema give you?</td><td>A committed contract that migration tests validate against.</td></tr>
+    <tr><td>When is destructive migration acceptable?</td><td>Pure cache with no user-authored data and no outbox.</td></tr>
+    <tr><td>DataStore's main limitation</td><td>No multi-process support.</td></tr>
+    <tr><td>Why must you catch <code>IOException</code> from DataStore?</td><td>It surfaces read failures instead of hiding them.</td></tr>
+    <tr><td>Why did SharedPreferences cause ANRs?</td><td><code>apply()</code>'s queue is drained synchronously at <code>onStop</code>.</td></tr>
+    <tr><td>First SharedPreferences read cost</td><td>The whole file is parsed synchronously.</td></tr>
+    <tr><td>Paging: cursor or page number for a live feed?</td><td>Cursor — page numbers duplicate and skip.</td></tr>
+    <tr><td>What does a RemoteMediator do?</td><td>Loads network pages into the database, which remains the source of truth.</td></tr>
+    <tr><td>Why write page and keys in one transaction?</td><td>A crash between them leaves the list and keys disagreeing.</td></tr>
+    <tr><td>Hilt vs Koin validation</td><td>Compile-time vs runtime.</td></tr>
+    <tr><td>When is field injection acceptable?</td><td>Only for framework-constructed types: Activity, Fragment, Worker.</td></tr>
+    <tr><td>What does <code>@ApplicationContext</code> prevent?</td><td>Accidentally injecting an Activity context into a singleton.</td></tr>
+    <tr><td>App Startup library solves what?</td><td>Content-provider-per-library startup cost and initializer ordering.</td></tr>
+  </tbody></table></div>
+
+  <h3>Compose</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%">What is the slot table?</td><td>A gap buffer recording, positionally, what was composed and remembered.</td></tr>
+    <tr><td>How is <code>remember</code> keyed?</td><td>By call-site position, not by variable name.</td></tr>
+    <tr><td>What does <code>key()</code> do?</td><td>Gives a composable semantic rather than positional identity.</td></tr>
+    <tr><td>What makes a type stable?</td><td>Consistent <code>equals</code>, no unobserved mutation, all public property types stable.</td></tr>
+    <tr><td>Why is <code>List</code> unstable?</td><td>It is an interface — the implementation could be mutable.</td></tr>
+    <tr><td>What is <code>@Immutable</code>?</td><td>A promise the compiler trusts and does not verify.</td></tr>
+    <tr><td>What did strong skipping change?</td><td>Unstable params compare by instance; lambdas are auto-remembered.</td></tr>
+    <tr><td><code>remember</code> vs <code>rememberSaveable</code></td><td>Survives recomposition vs also survives process death.</td></tr>
+    <tr><td>Why doesn't <code>list.add()</code> recompose?</td><td>The <code>State</code> reference never changed.</td></tr>
+    <tr><td>Fix for the above</td><td><code>mutableStateListOf</code>, or replace the value with a new list.</td></tr>
+    <tr><td><code>LaunchedEffect</code> vs <code>DisposableEffect</code></td><td>Suspending work vs register/unregister pairs.</td></tr>
+    <tr><td>What is <code>SideEffect</code> for?</td><td>Publishing to non-Compose objects after a successful composition.</td></tr>
+    <tr><td><code>rememberUpdatedState</code> solves what?</td><td>A stale lambda captured by a long-lived effect.</td></tr>
+    <tr><td>When does <code>derivedStateOf</code> help?</td><td>High-frequency input, low-frequency output, cheap derivation.</td></tr>
+    <tr><td>When does it hurt?</td><td>When the output changes as often as the input.</td></tr>
+    <tr><td><code>produceState</code> — what for?</td><td>Turning a suspend or callback source into <code>State</code>.</td></tr>
+    <tr><td><code>snapshotFlow</code> — what for?</td><td>Turning Compose state reads into a cold Flow.</td></tr>
+    <tr><td>The three phases</td><td>Composition, layout, drawing.</td></tr>
+    <tr><td>Why <code>Modifier.offset { }</code> over <code>offset()</code>?</td><td>The lambda defers the read to layout, skipping composition.</td></tr>
+    <tr><td>What phase does <code>graphicsLayer { }</code> read in?</td><td>Draw.</td></tr>
+    <tr><td>Why keys in a LazyColumn?</td><td>Stable identity — preserves state, enables animation and reuse.</td></tr>
+    <tr><td>What does <code>contentType</code> improve?</td><td>Reuse across heterogeneous item types.</td></tr>
+    <tr><td>Why never nest same-direction scrollables?</td><td>Infinite constraints force measuring every item.</td></tr>
+    <tr><td>Does a LazyColumn compose all items?</td><td>No — only visible ones plus prefetch.</td></tr>
+    <tr><td>Legitimate CompositionLocal uses</td><td>Theme, typography, density, formatters — ambient and rarely changing.</td></tr>
+    <tr><td>Illegitimate ones</td><td>ViewModels, repositories, screen data.</td></tr>
+    <tr><td>The semantics tree is also?</td><td>The accessibility tree, and the test tree.</td></tr>
+    <tr><td><code>collectAsState</code> vs <code>...WithLifecycle</code></td><td>The latter stops collecting when the UI is stopped.</td></tr>
+    <tr><td>Where do compiler metrics come from?</td><td><code>composeCompiler { metricsDestination = ... }</code>.</td></tr>
+    <tr><td>Recomposition count looks fine but it's slow?</td><td>Layout, draw, main-thread work, or a missing baseline profile.</td></tr>
+    <tr><td>Minimum touch target</td><td>48dp.</td></tr>
+    <tr><td>Why <code>contentDescription = null</code> on an icon inside a labelled button?</td><td>Otherwise TalkBack announces it twice.</td></tr>
+  </tbody></table></div>
+
+  <h3>Architecture and modularization</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%">Justify a layer boundary by?</td><td>The change it isolates, weighed against mapping and indirection cost.</td></tr>
+    <tr><td>Clean Architecture's real win</td><td>A pure-Kotlin domain with millisecond tests.</td></tr>
+    <tr><td>Weakest Clean Architecture argument</td><td>"You can swap the database" — it never happens.</td></tr>
+    <tr><td>When to introduce a use case</td><td>Logic, multiple sources, or reuse — not per repository method.</td></tr>
+    <tr><td>Should a repository expose UI state?</td><td>No — it cannot then be reused by a Worker, and errors arrive pre-formatted.</td></tr>
+    <tr><td>Flow or suspend from a repository?</td><td>Flow if the data has other writers; suspend for commands.</td></tr>
+    <tr><td>Where does loading state belong?</td><td>The state holder — loading is a UI concept.</td></tr>
+    <tr><td>State or event?</td><td>Survives rotation = state; happens once = event.</td></tr>
+    <tr><td>MVVM vs MVI in one line</td><td>Methods vs one intent channel; traceability bought with boilerplate.</td></tr>
+    <tr><td>Feature-to-feature dependency?</td><td>Never — route contracts assembled in <code>:app</code>.</td></tr>
+    <tr><td><code>api</code> vs <code>implementation</code></td><td><code>api</code> only for types in your public signatures.</td></tr>
+    <tr><td>Which recompiles more, a body or a signature change?</td><td>Signature — it is an ABI change.</td></tr>
+    <tr><td>Deep or wide module graph?</td><td>Wide and shallow parallelises; deep serialises.</td></tr>
+    <tr><td>Biggest single build win in a Dagger/Room app</td><td>kapt → KSP.</td></tr>
+    <tr><td>When does modularization stop paying?</td><td>Below about three teams.</td></tr>
+    <tr><td>What replaces a <code>:core:shared</code> module?</td><td>Capability modules with one owner each.</td></tr>
+    <tr><td>How are boundaries enforced?</td><td>Build logic and lint — not documentation.</td></tr>
+    <tr><td>Dynamic feature modules — when?</td><td>Only when install size is a demonstrated conversion problem.</td></tr>
+  </tbody></table></div>
+
+  <h3>Networking, storage, sync</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%">What dominates mobile network cost?</td><td>Latency and round-trip count, not bandwidth.</td></tr>
+    <tr><td>What is radio tail time?</td><td>The radio stays in a high-power state after a transfer — chatty clients drain battery.</td></tr>
+    <tr><td>What does HTTP/2 fix, and not fix?</td><td>Fixes HTTP head-of-line blocking; not TCP-level.</td></tr>
+    <tr><td>What does HTTP/3 add for mobile?</td><td>Connection migration across network changes.</td></tr>
+    <tr><td>Application vs network interceptor</td><td>Misses cache hits vs sees every wire attempt.</td></tr>
+    <tr><td>When is <code>Authenticator</code> invoked?</td><td>On 401 — and it replays the original request for you.</td></tr>
+    <tr><td>What is <code>EventListener</code> for?</td><td>Per-phase timings: DNS, connect, TLS, request, response.</td></tr>
+    <tr><td>Which failures are safe to retry?</td><td>Connection failures and 5xx; post-send timeouts only with an idempotency key.</td></tr>
+    <tr><td>Never retry which class?</td><td>4xx — deterministic.</td></tr>
+    <tr><td>Why jitter?</td><td>Synchronised retries turn a blip into an outage.</td></tr>
+    <tr><td>When is the idempotency key created?</td><td>At user commit, and persisted before the first call.</td></tr>
+    <tr><td>What is the unknown outcome?</td><td>No response received — a first-class state, never "failed".</td></tr>
+    <tr><td>What does an ETag save?</td><td>Bandwidth via 304 — not the round trip.</td></tr>
+    <tr><td>Cursor vs offset pagination</td><td>Offsets duplicate and skip on a live list.</td></tr>
+    <tr><td>Is connectivity a boolean?</td><td>No — captive portals, metered links, handovers. Attempt and handle failure.</td></tr>
+    <tr><td>What does WAL mode allow?</td><td>Concurrent readers during a write; still one writer.</td></tr>
+    <tr><td>Speedup from batching inserts</td><td>Typically 50–100× — one fsync instead of N.</td></tr>
+    <tr><td>How do you verify an index is used?</td><td><code>EXPLAIN QUERY PLAN</code> — "SEARCH … USING INDEX", not "SCAN TABLE".</td></tr>
+    <tr><td>Bitmap memory formula</td><td>width × height × 4 bytes in ARGB_8888.</td></tr>
+    <tr><td>A 12 MP photo decoded costs?</td><td>About 48 MB.</td></tr>
+    <tr><td>Why must sync cursors advance in-transaction?</td><td>Otherwise a crash loses or replays a page silently.</td></tr>
+    <tr><td>Why do deletions need tombstones?</td><td>An offline client never learns about them otherwise.</td></tr>
+    <tr><td>Can you resolve conflicts with client clocks?</td><td>No — devices lie. Use server versions.</td></tr>
+    <tr><td>Push: data or signal?</td><td>Signal — makes handlers idempotent for free.</td></tr>
+    <tr><td>Exactly-once delivery?</td><td>Does not exist. Exactly-once <em>effect</em> via idempotency does.</td></tr>
+  </tbody></table></div>
+
+  <h3>Performance, testing, security, build</h3>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:44%">Which device do you measure on?</td><td>The 25th-percentile device in your install base.</td></tr>
+    <tr><td>TTID vs TTFD</td><td>First frame vs content actually usable.</td></tr>
+    <tr><td>What does a baseline profile do?</td><td>AOT-compiles hot paths so first launch and first scroll are not interpreted.</td></tr>
+    <tr><td>Typical baseline profile gain</td><td>15–30% cold start, plus first-scroll jank.</td></tr>
+    <tr><td>Why read every thread in an ANR trace?</td><td>Main shows where it blocked; the cause is usually the lock holder.</td></tr>
+    <tr><td>Retained vs shallow size</td><td>Everything freed if it went away vs the object's own fields.</td></tr>
+    <tr><td>Will LeakCanary find unbounded growth?</td><td>No — those objects are reachable by design.</td></tr>
+    <tr><td>What does <code>onTrimMemory</code> mean?</td><td>Release caches now or be killed sooner.</td></tr>
+    <tr><td>Where do hardware bitmaps live?</td><td>Outside the Java heap — but still in the process footprint.</td></tr>
+    <tr><td>Fake or mock?</td><td>Fake what you own and reuse; mock what you neither own nor reuse.</td></tr>
+    <tr><td>Why never <code>delay()</code> in a test?</td><td>It bets on machine speed — the main flake source.</td></tr>
+    <tr><td>What makes coroutine tests deterministic?</td><td>Injected dispatchers plus <code>runTest</code> virtual time.</td></tr>
+    <tr><td>Why does a <code>WhileSubscribed</code> StateFlow look broken in a test?</td><td>It does not start until collected.</td></tr>
+    <tr><td>Is coverage a target?</td><td>No — a diagnostic. Target escaped defects.</td></tr>
+    <tr><td>What is worse than no tests?</td><td>A flaky suite — it trains engineers to re-run failures.</td></tr>
+    <tr><td>Which Gradle phase runs every invocation?</td><td>Configuration, unless the configuration cache is on.</td></tr>
+    <tr><td>What silently disables build caching?</td><td>Volatile inputs: timestamps, absolute paths.</td></tr>
+    <tr><td>Pre-merge pipeline budget</td><td>Under ten minutes, or engineers route around it.</td></tr>
+    <tr><td>How do you roll back a mobile release?</td><td>You don't — halt rollout, kill switch, server fix, forward hotfix.</td></tr>
+    <tr><td>What does halting a rollout affect?</td><td>New installs only; existing users keep the bad build.</td></tr>
+    <tr><td>Obfuscation vs encryption vs security</td><td>Renaming vs unreadable-without-a-key vs a system property enforced server-side.</td></tr>
+    <tr><td>Where do Keystore keys live?</td><td>Hardware (TEE/StrongBox) — never in your process.</td></tr>
+    <tr><td>What must never be reused under GCM?</td><td>The IV, with the same key.</td></tr>
+    <tr><td>Correct mobile OAuth flow</td><td>Authorization Code with PKCE, in a Custom Tab.</td></tr>
+    <tr><td>Why not an embedded WebView for login?</td><td>Your app can read credentials; no shared session; no verifiable URL bar.</td></tr>
+    <tr><td>Client secret in a mobile app?</td><td>None — it is a public client; PKCE replaces it.</td></tr>
+    <tr><td>Biometrics: boolean or key?</td><td>Key — a boolean branch is patchable.</td></tr>
+    <tr><td>What does certificate pinning risk?</td><td>Bricking the app on rotation — needs backup pins, expiry, kill switch.</td></tr>
+    <tr><td>Best root-detection signal</td><td>Play Integrity, validated server-side.</td></tr>
+  </tbody></table></div>
+
+  <h2><span class="cn">Chapter 165</span>Thirty-second answers</h2>
+  <p>Mechanism plus one consequence. If you exceed 45 seconds you are explaining rather than answering.</p>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:40%">How does structured concurrency prevent leaks?</td><td>Every coroutine has a parent; cancelling the parent cancels all descendants transitively, and a scope cannot complete before its children. Work cannot outlive its owner — which is exactly what <code>GlobalScope</code> breaks.</td></tr>
+    <tr><td>What happens when one of three <code>async</code> calls fails?</td><td>In a plain <code>coroutineScope</code> the failure cancels the parent at throw time, not at await time, so siblings die and a try/catch around <code>await()</code> does not help. Under a supervisor, siblings continue and each failure surfaces at its own await.</td></tr>
+    <tr><td>Why can five screens cause five network calls?</td><td><code>Flow</code> is cold — the builder runs per collector. <code>stateIn</code>/<code>shareIn</code>, or a single database source of truth, collapses them to one.</td></tr>
+    <tr><td>How does the slot table give <code>remember</code> its identity?</td><td>Identity is the call site's position in the composition tree. Move the call into a branch and it becomes a different slot — which is why <code>key()</code> exists.</td></tr>
+    <tr><td>Why does a 40 ms main-thread block drop three frames?</td><td>The frame it lands in is missed, and the next two VSYNC pulses arrive while the thread is still busy, so their work queues and runs late.</td></tr>
+    <tr><td>Why does WAL mode reduce jank?</td><td>Readers proceed during a write, so a background sync no longer blocks the query feeding a scrolling list. There is still one writer.</td></tr>
+    <tr><td>Why is jitter necessary in retry backoff?</td><td>Without it, a million clients that failed together retry together, turning a brief blip into a sustained outage. Full jitter spreads them uniformly.</td></tr>
+    <tr><td>Why must an idempotency key be persisted?</td><td>The case you are defending against is process death mid-request. A key held in memory is regenerated on restart, so the retry creates a second order.</td></tr>
+    <tr><td>Why is a mutable PendingIntent with an implicit intent dangerous?</td><td>Another app can fill in the intent and have it executed with your app's identity and permissions.</td></tr>
+    <tr><td>Why doesn't <code>@Immutable</code> make a type safe?</td><td>It is a promise the compiler trusts, not one it verifies. Breaking it produces stale UI that is very hard to debug.</td></tr>
+    <tr><td>Why is <code>replay = 1</code> wrong for events?</td><td>A collector created after rotation immediately receives the last event, so navigation or a snackbar fires twice.</td></tr>
+    <tr><td>Why does adding a sealed subtype break binary compatibility?</td><td>Separately-compiled consumers with exhaustive <code>when</code> throw <code>NoWhenBranchMatchedException</code> until recompiled.</td></tr>
+    <tr><td>Why does <code>api</code> hurt build times?</td><td>It puts the dependency on every consumer's compile classpath, so an ABI change there invalidates far more modules than necessary.</td></tr>
+    <tr><td>What does a baseline profile actually do?</td><td>Ships a list of hot methods AOT-compiled at install, so first launch and first scroll do not run interpreted while the JIT warms.</td></tr>
+    <tr><td>Why read every thread in an ANR trace?</td><td>Main's stack shows where it blocked, not why. If it waits on a monitor, the bug is in whichever thread holds the lock.</td></tr>
+    <tr><td>Why is unbounded growth invisible to LeakCanary?</td><td>The objects are reachable and intentionally retained; LeakCanary detects unreachable-but-retained objects.</td></tr>
+    <tr><td>Why do offsets break pagination on a live feed?</td><td>Insertions above your offset shift the window, so you see duplicates and skip items. Cursors encode a position in the data.</td></tr>
+    <tr><td>Why must the sync cursor advance inside the transaction?</td><td>Otherwise a crash between applying data and saving the cursor loses a page permanently or replays it — silently.</td></tr>
+    <tr><td>Why can't you resolve conflicts with client timestamps?</td><td>Device clocks are wrong — users change them and drift is common. Use server-assigned versions.</td></tr>
+    <tr><td>Why is biometric-as-a-boolean insufficient?</td><td>Nothing cryptographic depends on the result, so patching the branch or hooking the callback bypasses it.</td></tr>
+    <tr><td>Why is there no rollback for a mobile release?</td><td>You cannot remove a binary from devices. Halting affects new installs only; mitigation is a kill switch or server-side fix.</td></tr>
+    <tr><td>Why does flake matter more than test count?</td><td>A flaky suite trains engineers to re-run until green, so real failures get re-run too. Worse than no tests.</td></tr>
+    <tr><td>Why does a config-time timestamp hurt?</td><td>It changes every invocation, so the task is never up to date, everything downstream recompiles, and the configuration cache breaks.</td></tr>
+    <tr><td>Why prefer fakes over mocks at scale?</td><td>Mocks assert implementation, so refactors break tests without behaviour changing. At thousands of tests, refactoring becomes uneconomic.</td></tr>
+    <tr><td>Why does <code>launchWhenStarted</code> not save battery?</td><td>It suspends delivery but keeps the upstream producing — a socket or location flow keeps running with results buffered.</td></tr>
+    <tr><td>Why does the first read of SharedPreferences hurt startup?</td><td>The entire XML file is parsed synchronously on first access, on whatever thread asked.</td></tr>
+    <tr><td>Why is <code>catch (e: Exception)</code> around a suspend call a bug?</td><td>It swallows <code>CancellationException</code>, so the parent believes the child completed and you show errors on abandoned screens.</td></tr>
+    <tr><td>Why does deduplicating in the caller's scope backfire?</td><td>The first caller navigating away cancels the shared request for everyone else.</td></tr>
+    <tr><td>Why compare against the stale token during refresh?</td><td>Five concurrent 401s enter the lock in turn; those that find a changed token skip refreshing, so rotating refresh tokens are not invalidated.</td></tr>
+    <tr><td>Why does Room re-query on unrelated writes?</td><td>Invalidation is per table, not per row — so a hot table plus an unbounded query is a CPU load.</td></tr>
+    <tr><td>Why can a process be killed with an empty Java heap?</td><td>Native and hardware-bitmap memory count toward the process footprint the low-memory killer sees.</td></tr>
+    <tr><td>Why does the same code jank only on newer phones?</td><td>A 120 Hz display halves the frame budget to 8.3 ms.</td></tr>
+    <tr><td>Why is push latency unguaranteeable?</td><td>Doze, standby buckets and OEM battery optimisation all defer delivery; the design must tolerate delay.</td></tr>
+    <tr><td>Why does an activity-scoped shared ViewModel grow?</td><td>It is reachable from every screen, so it becomes the path of least resistance for any shared state.</td></tr>
+    <tr><td>Why does leaf-level Compose interop perform badly?</td><td>Each ComposeView carries its own composition and layout bridging, so per-item cost multiplies inside a RecyclerView.</td></tr>
+    <tr><td>Why measure with a release build?</td><td>Debug builds disable R8, add instrumentation, and run without AOT profiles — the numbers are unrelated to production.</td></tr>
+    <tr><td>Why does a shared flow's exception affect other screens?</td><td>It terminates the shared upstream for all collectors; with <code>WhileSubscribed</code> it silently restarts on the next subscription.</td></tr>
+    <tr><td>Why isn't "clear the cache on logout" enough?</td><td>The outbox may hold pending writes the user believes are saved, and a cleared session can apply them to the next account.</td></tr>
+    <tr><td>Why is a mutable Kotlin <code>List</code> a Java problem?</td><td><code>List</code> is <code>java.util.List</code> at runtime, so a Java caller can mutate a collection your API presents as read-only.</td></tr>
+    <tr><td>Why does the Compose compiler care about your module boundaries?</td><td>Types from modules without the Compose compiler cannot have stability inferred, so they are treated as unstable.</td></tr>
+  </tbody></table></div>
+
+  <h2><span class="cn">Chapter 166</span>One-minute answers</h2>
+  <p>Trade-off questions. Every answer must contain a criterion and a caveat; without a criterion it is not an answer.</p>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:40%">Should this repository return <code>Flow</code> or <code>suspend</code>?</td><td>Criterion: does the data have other writers? Sync workers, push handlers, other screens → Flow over an observable query. A command → suspend. Caveat: cold flows need sharing or you pay N calls for N collectors, and <code>Flow&lt;Result&lt;T&gt;&gt;</code> leaks transport vocabulary into the domain.</td></tr>
+    <tr><td>Where should loading and error state live?</td><td>The repository emits data or throws; the state holder maps to Loading/Ready/Failed, because loading describes the view's relationship to data. Per-section rather than one global flag, so an 80 ms header does not wait on a 2 s list.</td></tr>
+    <tr><td>MVVM or MVI for this screen?</td><td>Criterion: how many independent inputs mutate state, and do you need replayable transitions? Settings → MVVM. Checkout with payment, address and inventory racing → MVI's funnel earns its boilerplate. Both in one codebase with a written rule is judgment, not inconsistency.</td></tr>
+    <tr><td>Hilt or Koin here?</td><td>Criterion: team size and the cost of a runtime failure. Above ~10 engineers, compile-time validation wins because a runtime DI failure in a rare screen reaches production. Below, Koin's build-time saving is real. Libraries: no framework.</td></tr>
+    <tr><td>How do you decide what to cache?</td><td>Criterion: cost of staleness versus cost of fetching. Cheap-to-fetch, expensive-to-be-wrong data — prices, balances, inventory — should not be cached, or should carry an explicit "as of". Every cache needs an invalidation story before it is written.</td></tr>
+    <tr><td>When would you not modularize?</td><td>Below roughly three teams, build-config overhead and graph maintenance can exceed the benefit — and a deep, <code>api</code>-heavy graph builds slower than a monolith. It pays with team count and boundary enforcement, not line count.</td></tr>
+    <tr><td>How do you choose a real-time transport?</td><td>Socket while the relevant screen is foregrounded, push as the wake signal when backgrounded, delta fetch on resume. Criterion: latency requirement versus battery and connection cost — 1.5M idle sockets is a real bill for a feature most users are not currently using.</td></tr>
+    <tr><td>How much of a design should be offline-capable?</td><td>Classify: reference data (evictable, TTL), user-owned (never evicted while signed in), pending writes (durable, never purged by a cache clear). Offline-first roughly doubles each feature's state space, so apply it where users author data.</td></tr>
+    <tr><td>What is your testing strategy for a new feature?</td><td>Domain rules and reducers always; state holder behaviour always; repository with fakes usually; a screenshot per significant visual state; UI tests only on the critical path. Explicitly not: mocked interaction verification, or layout assertions that churn weekly.</td></tr>
+    <tr><td>How do you decide whether to take on technical debt?</td><td>Non-negotiable: data integrity, security, anything irreversible or needing a user-visible migration later. Negotiable: test depth on low-risk paths, refactoring, polish. Record it with an owner and an expiry — undocumented debt is the kind that compounds.</td></tr>
+    <tr><td>Foreground service or WorkManager?</td><td>Criterion: must the user see it happening now, or must it merely eventually happen? Navigation and active tracking → foreground service with a declared type. Sync and upload → WorkManager with unique work and backoff.</td></tr>
+    <tr><td>How do you approach a performance regression?</td><td>Quantify and segment first — metric, percentile, device tier, version, rollout correlation. Three ranked hypotheses. Trace on a mid-tier device with a release build. Fix, verify in lab and field, then add the CI gate, or you will repeat this investigation next year.</td></tr>
+    <tr><td>REST, GraphQL or gRPC for this surface?</td><td>Criterion: does the screen aggregate many resources, and does the field set vary by client version? Yes → GraphQL, accepting that you lose HTTP caching and take on a normalised cache. High-frequency streaming → gRPC. Otherwise REST, because caching and debuggability are free.</td></tr>
+    <tr><td>Should this state live in the ViewModel or the repository?</td><td>Criterion: is it screen state or app state? Selected tab, scroll position, form input → ViewModel with SavedStateHandle. Signed-in user, feature flags, cart → repository with a persisted source of truth, because more than one screen depends on it surviving.</td></tr>
+    <tr><td>How do you decide the conflict policy for a data type?</td><td>Criterion: what does a wrong resolution cost? Nil → last-write-wins (read state). Independent fields → per-field merge. Business-critical → server arbitration. User-authored text → conflict copy, because silently losing writing is never acceptable.</td></tr>
+    <tr><td>When is a custom Compose layout justified?</td><td>Criterion: can the built-in layouts express it without intrinsics or nested weights in a hot path? If measurement cost is showing in a trace, a custom layout with a single measurement pass is justified. Otherwise it is a maintenance cost with no return.</td></tr>
+    <tr><td>How do you scope a kill switch?</td><td>Criterion: what is the smallest thing you would want to disable in an incident? Per-feature, evaluated at the entry point, defaulting to on, with a local default for offline. Anything integrating a third party gets one by policy, because you cannot fix their outage.</td></tr>
+    <tr><td>How do you pick what to instrument?</td><td>Work backwards from failure modes: for each way the feature can fail, name the metric that would move. If a failure mode has no metric, it will be discovered by users. Then check the cost — telemetry volume is a real budget line.</td></tr>
+  </tbody></table></div>
+
+  <h2><span class="cn">Chapter 167</span>Three-minute answers</h2>
+  <p>Mini-designs and debugging prompts that open into longer conversations. Each should end with you naming what you would measure.</p>
+  <div class="tw"><table><tbody>
+    <tr><td style="width:46%">Design the offline write queue for a messaging app.</td><td>Outbox table with the row ID as the idempotency key; states pending/in-flight/failed; stale in-flight rows reset on startup; FIFO drain with stop-on-retryable to preserve order; jittered backoff; permanent failures surfaced to the user; WorkManager for durability; local-ID-to-server-ID rewriting for dependent operations. Measure: outbox depth p95, permanent-failure rate.</td></tr>
+    <tr><td>A user reports the app "loses their edits sometimes." Diagnose.</td><td>Candidates: non-transactional cursor advance; state not saved across process death; outbox purged by a cache clear or logout; a conflict policy silently choosing server-wins; destructive migration. Instrument first — sync lag and outbox depth make this observable rather than anecdotal.</td></tr>
+    <tr><td>Design the state model for a multi-step checkout.</td><td>Server-driven step machine so payment and compliance steps change without a release; local persistence of step and idempotency key for resumability; explicit Unknown outcome; re-price confirmation before charge; navigation as events, not state. Measure: step abandonment, unknown-outcome rate.</td></tr>
+    <tr><td>Cold start regressed 800 ms over two quarters with no single culprit.</td><td>Accumulation, not a regression: three-tier initialisation with an owner for the total, a CI startup budget that fails the build, baseline profile regeneration, an SDK integration standard requiring lazy init. Report in retention terms to keep it funded.</td></tr>
+    <tr><td>Design a feature-flag system for a 40-engineer Android org.</td><td>Remote config with local defaults for offline; typed accessors, not string keys; owner and expiry declared at creation; kill switches as a separate permanent category; staged-rollout integration with halt criteria; a stale-flag report, because 400 accumulated flags are 400 untested code paths.</td></tr>
+    <tr><td>How would you make a 90-minute test suite usable again?</td><td>Flake first — history-based detection, automatic quarantine with owner and expiry, a visible dashboard. Then tier: affected-module tests pre-merge, full suite post-merge, E2E nightly. Measure PR wall-clock and change failure rate, not coverage. Ownership via CODEOWNERS or the quarantine list grows forever.</td></tr>
+    <tr><td>Design image loading for a media-heavy feed.</td><td>Server-side renditions requested at display size; memory cache sized from <code>memoryClass</code>; disk cache with a hard quota and LRU; prefetch two screens ahead on unmetered only; cancel on detach; decode off the main thread. Measure: cache hit rate, decode time p95, OOM rate by device tier.</td></tr>
+    <tr><td>Your app is the source of a backend outage. What happened and what do you change?</td><td>Almost certainly a synchronised retry herd, or a client-side loop against a failing endpoint. Changes: full jitter, a client circuit breaker, respect for <code>Retry-After</code>, bounded queues with a downsampling policy, and a kill switch on the calling feature. Measure: request rate per user per minute, and alert on it.</td></tr>
+    <tr><td>Design analytics for a 200-screen app so it stays trustworthy.</td><td>A typed event schema reviewed like an API; events enqueued durably and batched; a client-side enqueued counter reconciled daily against server-received counts; consent state as a first-class input; sampling policy with a cost dashboard. Measure: the reconciliation gap — that is the number that catches silent loss.</td></tr>
+    <tr><td>Walk me through making a legacy screen testable without changing behaviour.</td><td>Extract pure logic behind the existing behaviour, characterise it with tests written against current output first, inject the clock and dispatchers, split the stateful entry point from the stateless UI, then refactor under the new tests. Ship each step separately. Measure: nothing should move — that is the point.</td></tr>
+  </tbody></table></div>
+
+  <div class="panel">
+    <h4>Part XXVII practice protocol</h4>
+    <ul class="chk">
+      <li>Ten-second band: cover the answers, run 40 in seven minutes, mark every hesitation.</li>
+      <li>Thirty-second band: answer aloud; over 45 seconds means you are explaining rather than answering.</li>
+      <li>One-minute band: every answer needs a criterion and a caveat.</li>
+      <li>Three-minute band: end each one by naming what you would measure.</li>
+      <li>Re-run the bands you failed 48 hours later, not the same day.</li>
+      <li>Two weeks out, run the full ten-second set in one sitting — it should take under 40 minutes.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p26" data-p="p26"><span class="k">Previous</span><span class="t">← Part XXVI</span></a><a class="r" href="#p28" data-p="p28"><span class="k">Next</span><span class="t">Part XXVIII — Mock Loops →</span></a></div>
+</section>

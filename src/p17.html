@@ -1,0 +1,165 @@
+<section class="page" id="p17">
+  <header class="phead">
+    <p class="eyebrow">Part XVII</p>
+    <h1>Sync &amp; <em>Distributed Concepts</em></h1>
+    <p class="deck">The distributed-systems subset that genuinely applies to a device that is frequently offline, occasionally wrong about the time, and one of several clients writing the same data.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 118</span>Local-first architecture</h2>
+  <p>Offline-first is not "cache the responses." It is an inversion of control: <strong>the local database is the source of truth, and the network is a background process that reconciles it with the server.</strong> The UI never awaits the network for a read, and never awaits it for a write either.</p>
+
+  <pre class="mermaid">
+flowchart LR
+  UI["UI"] --> S["State holder"]
+  S --> R["Repository"]
+  R --> DB[("Local DB — source of truth")]
+  DB --> R
+  R --> OB[["Outbox"]]
+  OB --> SY["Sync engine (WorkManager)"]
+  SY --> API["Server"]
+  API --> SY
+  SY --> DB
+  PUSH["Push"] -. "wake" .-> SY
+  </pre>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Aspect</th><th>Online-first</th><th>Offline-first</th></tr></thead>
+    <tbody>
+      <tr><td>Read path</td><td>Network → UI, cache as a fallback</td><td>DB → UI, always</td></tr>
+      <tr><td>Write path</td><td>Await server, then update UI</td><td>Write locally, enqueue, reconcile</td></tr>
+      <tr><td>Failure UX</td><td>Error screens and spinners</td><td>Degraded but functional; sync indicators</td></tr>
+      <tr><td>Complexity</td><td>Low</td><td>High — conflicts, queues, schema, reconciliation</td></tr>
+      <tr><td>When to choose</td><td>Data is inherently server-live (prices, availability, feeds)</td><td>Users create content, or connectivity is genuinely unreliable</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><span class="lab">The trade-off to state out loud</span><p>Offline-first roughly doubles the state space of every feature and introduces a permanent class of conflict bugs. It is the right choice when the user authors data or works in poor connectivity; it is over-engineering for a price-comparison app whose data is meaningless when stale. "Should everything be offline-first?" is a Part XXV trap question, and the answer is no.</p></div>
+
+  <h2><span class="cn">Chapter 119</span>Sync engines and delta synchronisation</h2>
+  <p>A sync engine has four responsibilities and they must be separable in code, because they fail differently: <strong>push</strong> local changes, <strong>pull</strong> remote changes, <strong>resolve</strong> conflicts, and <strong>reconcile</strong> after failure.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — timestamp-based sync</div><pre>val since = prefs.getLong("last_sync", 0)
+val changes = api.changes(since = since)
+applyAll(changes)
+prefs.putLong("last_sync", System.currentTimeMillis())  // client clock!</pre>
+      <p class="why">Three defects: the client clock may be wrong or moved backwards by the user; a change written server-side <em>during</em> the request window is missed permanently; and if <code>applyAll</code> crashes halfway, the cursor advances anyway and the data is silently lost. Timestamp sync loses data quietly, which is the worst failure mode.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — server-issued opaque cursor, transactional</div><pre>var cursor = meta.cursor()          // opaque; the server defines it
+do {
+    val page = api.changes(since = cursor, limit = 200)
+    db.withTransaction {
+        page.changes.forEach(::applyRemote)
+        meta.setCursor(page.nextCursor)   // advances ONLY with the data
+    }
+    cursor = page.nextCursor
+} while (page.hasMore)</pre>
+      <p class="why">The cursor and the data advance atomically, so a crash resumes exactly where it stopped. The cursor is opaque — the client must not interpret it, which lets the server change its pagination strategy without breaking installed clients.</p></div>
+  </div>
+
+  <h4>Tombstones</h4>
+  <p>Deletions must be synced as explicit tombstone records. Without them, a client that was offline during a deletion never learns about it and the row lives forever — which presents as "deleted items keep coming back," one of the most reported sync bugs. Tombstones need a retention window agreed with the backend, and a client that has been offline longer than that window must perform a full resync rather than a delta.</p>
+
+  <h2><span class="cn">Chapter 120</span>Conflict resolution</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Strategy</th><th>How it works</th><th>Right for / wrong for</th></tr></thead>
+    <tbody>
+      <tr><td>Last-write-wins (server clock)</td><td>Highest server timestamp survives</td><td>Right for low-value, high-churn fields (read state, settings). Wrong for user-authored text — it silently deletes work.</td></tr>
+      <tr><td>Per-field merge</td><td>Merge non-overlapping field changes</td><td>Right for records with independent fields — a profile where one device changed the name and another the avatar.</td></tr>
+      <tr><td>Server arbitration</td><td>Server holds the rules and decides</td><td>Right whenever correctness is business-critical: inventory, balances, bookings.</td></tr>
+      <tr><td>Conflict copy</td><td>Keep both, surface to the user</td><td>Right for documents and notes. Ugly but honest; users prefer it to lost work.</td></tr>
+      <tr><td>CRDT</td><td>Types that merge deterministically</td><td>Right for collaborative editing and counters. Wrong where metadata growth or debuggability matters more than automatic convergence.</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>The clock problem:</strong> never resolve conflicts with client timestamps. Devices have wrong clocks — users change them, timezones shift, and some devices drift by minutes. Use server-assigned versions or sequence numbers. If you must use a client timestamp for ordering, correct it against a server-provided <code>server_time</code> on every response and store the offset.</p>
+
+  <div class="code1"><div class="lab">Version-based optimistic concurrency — the workhorse</div><pre>// Client sends the version it last saw.
+PATCH /notes/42        { "version": 7, "title": "Groceries" }
+
+// Server: if current version != 7 → 409 with the current record.
+409 { "code": "VERSION_CONFLICT", "current": { "version": 9, ... } }
+
+// Client resolves according to the type's policy:
+when (val r = api.patch(note, version = local.version)) {
+    is Ok       -&gt; db.upsert(r.record)                 // version advances
+    is Conflict -&gt; when (policy) {
+        ServerWins  -&gt; db.upsert(r.current)
+        FieldMerge  -&gt; db.upsert(merge(local, r.current, base))
+        KeepBoth    -&gt; { db.upsert(r.current); db.insert(local.asCopy()) }
+    }
+}</pre></div>
+
+  <h2><span class="cn">Chapter 121</span>Idempotency and the unknown outcome</h2>
+  <p>Distributed systems deliver <em>at least once</em>. Exactly-once delivery does not exist; exactly-once <em>effect</em> is achievable, and only through idempotency. The three places this bites a mobile client:</p>
+  <ol>
+    <li><strong>Client → server writes.</strong> Solved with a persisted idempotency key (Parts IX and XVI).</li>
+    <li><strong>Server → client push.</strong> FCM may deliver a message more than once, or reorder it. Push handlers must be idempotent — which is another argument for treating push as a <em>signal to fetch</em> rather than as data to apply.</li>
+    <li><strong>Sync replay.</strong> Applying the same delta page twice must be a no-op, which means upserts keyed by server ID, never blind inserts.</li>
+  </ol>
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — trusting push payloads</div><pre>override fun onMessageReceived(msg: RemoteMessage) {
+    val m = msg.data.toMessage()
+    db.insert(m)                  // duplicate on re-delivery
+    unread++                      // and the count drifts forever
+}</pre>
+      <p class="why">Duplicate delivery inserts twice; out-of-order delivery corrupts the sequence; and a payload from a stale push shows content the user already deleted.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — push as a wake signal</div><pre>override fun onMessageReceived(msg: RemoteMessage) {
+    val conversationId = msg.data["cid"] ?: return
+    // Idempotent by construction: fetching twice is harmless.
+    SyncWorker.enqueueUnique(context, conversationId)
+}</pre>
+      <p class="why">The payload is a hint; the server remains the source of truth. This also solves payload size limits and means a missed push degrades to a delay rather than to missing data.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 122</span>Real-time transport</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:140px">Transport</th><th>Strengths</th><th>Mobile-specific cost</th></tr></thead>
+    <tbody>
+      <tr><td>WebSocket</td><td>Bidirectional, low latency</td><td>Dies in Doze and on network changes; needs reconnection, resume tokens and a heartbeat; drains battery if held while backgrounded.</td></tr>
+      <tr><td>SSE / long poll</td><td>Simpler, works through more proxies</td><td>One-directional; still a held connection with the same background problems.</td></tr>
+      <tr><td>FCM push</td><td>OS-managed, survives Doze, costs nothing to keep "open"</td><td>Latency of seconds; delivery is best-effort; high-priority quota is a finite reputational resource.</td></tr>
+      <tr><td>Poll</td><td>Trivially simple, cache-friendly</td><td>Latency versus battery trade-off; wasteful when nothing changed. Fine as a fallback.</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>The standard Staff answer:</strong> hybrid. Socket only while the relevant screen is foregrounded; push as the wake signal when backgrounded; a delta fetch on every resume to close gaps. Explain the reconnection protocol — exponential backoff with jitter, a resume token so the server can replay missed events, and a bounded gap after which you resync rather than replay.</p>
+
+  <h2><span class="cn">Chapter 123</span>Multi-device consistency and client-side backpressure</h2>
+  <p><strong>Multi-device</strong> turns several single-client problems into distributed ones: read state must converge (use a monotonic high-water mark, which is conflict-free); notifications must be dismissible across devices (server-side dismissal); and logout on one device must not silently invalidate a pending write queue on another.</p>
+  <p><strong>Logout is the underrated case.</strong> The correct behaviour needs a product decision, and a Staff candidate should force it: block logout while the outbox is non-empty, warn and discard, or complete the queue in the background before clearing. What is never acceptable is clearing local data with pending writes still queued, because the user believes their work was saved.</p>
+  <p><strong>Client-side backpressure and rate limiting</strong> matter because your app can be the source of an outage. A client that retries aggressively on failure, multiplied by ten million devices, is a denial-of-service against your own backend. Every client needs: jittered backoff (Part IX), a circuit breaker that stops hammering a failing endpoint, a cap on queued operations with a downsampling policy, and respect for <code>Retry-After</code>.</p>
+
+  <div class="q">
+    <p class="qt">Interview question · the classic offline-first opener</p>
+    <p class="qh">"Two devices edit the same record while both are offline. What happens?"</p>
+    <h4>Short answer</h4>
+    <p>It depends on the record's conflict policy, which must be defined per data type at design time — not discovered when the first conflict occurs in production.</p>
+    <h4>Deep answer <span class="chip c4">L4</span></h4>
+    <p>"First I'd reject the idea that there is one answer for the whole app. The policy belongs to the data type, and I'd want it written down per type: read state is last-write-wins because the cost of getting it wrong is nil; a profile is per-field merge because the fields are independent; an inventory reservation is server-arbitrated because only the server knows the truth; and a note's body is either a three-way merge or a conflict copy, because silently losing someone's writing is the one outcome we never ship.</p>
+    <p>Mechanically, both devices carry the base version they last saw. Whichever syncs first advances the server version. The second gets a 409 with the current record, and applies its type's policy — for a merge it needs the <em>base</em>, which means the client must retain the last-synced version, not just the local mutation. That is the detail people miss: without the base you cannot distinguish 'I changed this field' from 'they changed it', so you cannot merge, only overwrite.</p>
+    <p>For observability I'd instrument the conflict rate per type. A rate that is higher than expected usually means the data model is wrong — two independent things sharing one record — and that is a design fix, not a merge-algorithm fix.</p>
+    <p>And testing: conflicts are the hardest sync case to test manually, so I'd build a deterministic harness with two simulated clients and a fake server that can be told which write lands first, and run every policy through it."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What if sync fails halfway through applying a page?" — The cursor advances only inside the transaction that applies the page, so it resumes exactly where it stopped. Never advance the cursor optimistically.</li>
+      <li>"What if local storage is corrupted?" — Detect on open, preserve the outbox if readable, rebuild everything else from the server, and tell the user rather than silently resetting. If the outbox is unreadable, that is a data-loss event and it should be reported as one.</li>
+      <li>"What if the server returns duplicate events?" — Idempotent application keyed by server ID. Blind inserts turn an at-least-once feed into duplicated rows.</li>
+      <li>"How do you test the whole thing?" — Deterministic two-client harness for conflicts, fault injection for partial failure, a fake clock for TTLs, and a soak test at realistic data volume. Volume matters — sync bugs hide at small scale.</li>
+      <li>"What breaks first at 10× data?" — The full-resync path and the delta page size. A user with 500k records cannot bootstrap the way a user with 500 does, which usually means a paged bootstrap with progressive availability rather than an all-or-nothing sync.</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Part XVII rapid recall</h4>
+    <ul>
+      <li>Offline-first inverts control: DB is truth, the network reconciles. It doubles the state space — choose it deliberately.</li>
+      <li>Opaque server cursors, advanced inside the same transaction as the data.</li>
+      <li>Deletions need tombstones and a retention window; longer offline than the window ⇒ full resync.</li>
+      <li>Conflict policy is per data type, and the client must retain the base version to merge at all.</li>
+      <li>Never resolve conflicts with client clocks.</li>
+      <li>Push is a wake signal, not data — that makes handlers idempotent for free.</li>
+      <li>Socket while foregrounded, push while backgrounded, delta fetch on resume.</li>
+      <li>Your client can DoS your backend: jittered backoff, circuit breaker, bounded queues.</li>
+      <li>Logout with a non-empty outbox is a product decision, and it must be made before launch.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p16" data-p="p16"><span class="k">Previous</span><span class="t">← Part XVI</span></a><a class="r" href="#p18" data-p="p18"><span class="k">Next</span><span class="t">Part XVIII — Legacy &amp; Migration →</span></a></div>
+</section>

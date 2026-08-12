@@ -1,0 +1,213 @@
+<section class="page" id="p5">
+  <header class="phead">
+    <p class="eyebrow">Part V</p>
+    <h1>Jetpack <em>in Depth</em></h1>
+    <p class="deck">Why each library exists, what it was created to fix, and — the part most candidates skip entirely — when not to use it.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 33</span>ViewModel and state ownership</h2>
+  <p><code>ViewModel</code> exists for exactly one reason: to hold state across configuration changes without leaking the Activity. Everything else attributed to it — "it's the presentation layer", "it's where business logic goes" — is convention, not mechanism.</p>
+  <p>The mechanism: <code>ViewModelStore</code> is retained across recreation by the <code>ComponentActivity</code>'s <code>NonConfigurationInstance</code>. <code>onCleared()</code> is called when the store's owner is <em>finished</em>, not when it is recreated. This is why holding a <code>Context</code> or a <code>View</code> in a ViewModel leaks: the ViewModel outlives them by design.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:145px">Scope</th><th>Lives as long as</th><th>Use for / hazard</th></tr></thead>
+    <tbody>
+      <tr><td>Activity / Fragment</td><td>That component</td><td>Default. Simple and predictable.</td></tr>
+      <tr><td>Nav graph</td><td>The graph is on the back stack</td><td>Multi-screen flows: checkout, onboarding. Correct answer to "how do three screens share state?"</td></tr>
+      <tr><td>Activity-scoped shared</td><td>The whole activity</td><td>Convenient and dangerous: becomes a global mutable object that no screen owns. The most common cause of the 2,000-line ViewModel.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="q">
+    <p class="qt">Interview question · architecture, asked constantly</p>
+    <p class="qh">"Your ViewModel has grown to 2,000 lines. What do you do?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>Everyone has seen this file. The question is whether you reach for a mechanical split (which usually makes it worse) or diagnose why it grew.</p>
+    <h4>Deep answer <span class="chip c4">L4</span></h4>
+    <p>"First I'd find out <em>why</em>, because the fix differs. There are four common causes and only one of them is solved by splitting the class.</p>
+    <ol>
+      <li><strong>It's a shared activity-scoped ViewModel doing six screens' work.</strong> Fix: give each screen its own, and move genuinely-shared state into a nav-graph-scoped ViewModel or a repository. This is the most common cause.</li>
+      <li><strong>Business logic that belongs in the domain layer.</strong> Pricing rules, eligibility checks, validation. Fix: extract to plain, testable classes with no Android dependency. This shrinks the file and makes the logic unit-testable in milliseconds.</li>
+      <li><strong>Orchestration complexity that's genuinely there.</strong> A screen that really does coordinate eight sources. Fix: model it as an explicit state machine, or split into independently-testable <em>state producers</em> that the ViewModel combines. Do not split arbitrarily by line count — you get two files that must be read together, which is worse.</li>
+      <li><strong>Boilerplate: mapping, event plumbing, one-off UI flags.</strong> Fix: attack the pattern, not the file — a shared mapper convention or a small state-machine helper removes it from 40 ViewModels at once.</li>
+    </ol>
+    <p>I'd also check what the file's change rate and defect rate look like. A 2,000-line ViewModel nobody touches is a low priority; a 600-line one that three teams edit weekly and that causes merge conflicts is the real problem.</p>
+    <p>What I would <em>not</em> do is introduce a use-case class per method to move lines out. That produces 40 one-line classes, no reduction in complexity, and an onboarding cost for everyone."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"How do you split it without a two-week freeze?" — Extract domain logic first (pure, no behaviour change, coverable by tests before and after), then split screens, then decompose orchestration. Each step ships independently.</li>
+      <li>"How do you stop it recurring?" — A soft limit surfaced in review, but more usefully a lint rule on ViewModel dependency count, and a template that makes the right structure the path of least resistance.</li>
+      <li>"When is a big ViewModel acceptable?" — When the screen is genuinely complex and the alternative is scattering coherent logic across files that must be read together. Cohesion beats line count.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 34</span>Lifecycle-aware collection</h2>
+  <p>The single most consequential Jetpack detail: a coroutine launched in <code>lifecycleScope</code> is cancelled only at <code>onDestroy</code>. A flow collected there keeps running while the app is backgrounded — updating a UI nobody sees, holding a socket open, draining battery.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — collection that runs in the background</div><pre>lifecycleScope.launch {
+    viewModel.state.collect { render(it) }
+}
+
+// Also wrong: launchWhenStarted, which *suspends*
+// the coroutine but keeps the upstream flow active.
+lifecycleScope.launchWhenStarted {
+    viewModel.locations.collect { ... }
+}</pre>
+      <p class="why"><code>launchWhenStarted</code> (deprecated) pauses delivery but does not cancel the producer — so a location or socket upstream keeps running with its results buffered.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — repeatOnLifecycle</div><pre>lifecycleScope.launch {
+    repeatOnLifecycle(Lifecycle.State.STARTED) {
+        viewModel.state.collect { render(it) }
+    }
+}
+
+// Compose equivalent:
+val state by viewModel.state
+    .collectAsStateWithLifecycle()</pre>
+      <p class="why"><code>repeatOnLifecycle</code> cancels the whole block on STOP and restarts it on START, so the upstream is genuinely torn down. Paired with <code>WhileSubscribed(5_000)</code> upstream, a rotation costs nothing but a background trip costs nothing either.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 35</span>Room</h2>
+  <p>Room is a compile-time-verified SQLite wrapper. The interview value is in the parts that are not obvious from the docs.</p>
+  <ul>
+    <li><strong>Observable queries are table-scoped.</strong> <code>Flow&lt;List&lt;T&gt;&gt;</code> re-runs on <em>any</em> write to any table it touches, not on a change to the returned rows. A frequently-written table therefore re-queries constantly; that is a common jank source on list screens.</li>
+    <li><strong>Suspend DAO functions are already main-safe.</strong> Room dispatches to its own executor.</li>
+    <li><strong><code>@Transaction</code> matters for relations.</strong> A <code>@Relation</code> query issues multiple statements; without <code>@Transaction</code> you can observe a torn read.</li>
+    <li><strong>Migrations are permanent public API.</strong> Every schema version that shipped must have a path forward, from any version, forever — users skip releases.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — untested destructive migration</div><pre>Room.databaseBuilder(ctx, Db::class.java, "app.db")
+    .fallbackToDestructiveMigration()   // silent data loss
+    .build()
+
+// And a query that re-runs on every unrelated write:
+@Query("SELECT * FROM messages ORDER BY ts DESC")
+fun all(): Flow&lt;List&lt;Message&gt;&gt;   // 5k rows, re-read constantly</pre>
+      <p class="why">Destructive migration in a shipped app deletes user data — including a pending offline write queue. And an unbounded observable query over a hot table can dominate your CPU profile.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — real migrations, bounded queries</div><pre>Room.databaseBuilder(ctx, Db::class.java, "app.db")
+    .addMigrations(MIGRATION_7_8, MIGRATION_8_9)
+    .build()
+
+val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE messages ADD COLUMN read INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("CREATE INDEX idx_messages_ts ON messages(ts)")
+    }
+}
+
+@Query("SELECT * FROM messages WHERE chat_id = :id ORDER BY ts DESC LIMIT 50")
+fun page(id: String): Flow&lt;List&lt;Message&gt;&gt;</pre>
+      <p class="why">Export the schema JSON, commit it, and run <code>MigrationTestHelper</code> over every version pair in CI. This is one of the few places where a missing test is a data-loss incident rather than a bug.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 36</span>DataStore vs SharedPreferences</h2>
+  <p><code>SharedPreferences</code> has two defects that DataStore exists to fix: <code>commit()</code> blocks the calling thread on disk I/O, and <code>apply()</code>, while async, is <em>drained synchronously on the main thread</em> during <code>onPause</code>/<code>onStop</code> via <code>QueuedWork</code> — a well-documented ANR source in apps with many preference writes. There is also no error channel: a failed write is silent.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid</div><pre>prefs.edit().putString(KEY_TOKEN, token).commit()  // blocks main
+
+// Reading on the main thread the first time also
+// blocks: the whole file is parsed on first access.
+val theme = prefs.getString("theme", "dark")</pre>
+      <p class="why">The first read loads and parses the entire XML file synchronously. On a cold start with a large prefs file this is a measurable startup cost, and it is one of the top ANR signatures in Play Vitals for older apps.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — DataStore, observed</div><pre>val theme: Flow&lt;Theme&gt; = dataStore.data
+    .catch { e -&gt;
+        if (e is IOException) emit(emptyPreferences()) else throw e
+    }
+    .map { Theme.from(it[THEME_KEY]) }
+
+suspend fun setTheme(t: Theme) {
+    dataStore.edit { it[THEME_KEY] = t.name }
+}</pre>
+      <p class="why">Fully asynchronous, transactional, with errors as a real signal. Note the mandatory <code>catch</code> for <code>IOException</code> — DataStore surfaces read failures rather than hiding them, and forgetting this crashes on corrupt files.</p></div>
+  </div>
+  <div class="note"><span class="lab">When NOT to use DataStore</span><p>It has no multi-process support (a documented limitation), so a <code>:widget</code> or <code>:pushservice</code> process cannot share it safely. If you have multiple processes, you need a <code>ContentProvider</code>-fronted store or a database. Naming this unprompted is a strong signal — it is the kind of constraint that appears three months into a project.</p></div>
+
+  <h2><span class="cn">Chapter 37</span>WorkManager, Paging, Navigation</h2>
+  <h4>WorkManager guarantees, stated precisely</h4>
+  <p>WorkManager guarantees the work will <em>eventually</em> run subject to its constraints, surviving process death and reboot. It does not guarantee <em>when</em>. On aggressively-optimising OEM firmware, deferred work can be delayed by hours or suppressed until the app is opened. Any product requirement of the form "this must happen within N minutes" cannot be met by WorkManager alone — it needs a server-side push as the trigger.</p>
+
+  <h4>Paging 3 with a RemoteMediator — the shape interviewers expect</h4>
+  <div class="code1"><div class="lab">Network + database paging, database as source of truth</div><pre>@OptIn(ExperimentalPagingApi::class)
+class FeedMediator(
+    private val api: FeedApi,
+    private val db: AppDatabase,
+) : RemoteMediator&lt;Int, FeedEntity&gt;() {
+
+    override suspend fun load(
+        loadType: LoadType,
+        state: PagingState&lt;Int, FeedEntity&gt;,
+    ): MediatorResult = try {
+        val key = when (loadType) {
+            LoadType.REFRESH -&gt; null
+            LoadType.PREPEND -&gt; return MediatorResult.Success(endOfPaginationReached = true)
+            LoadType.APPEND  -&gt; db.keys().nextKeyFor(state.lastItemOrNull()?.id)
+                ?: return MediatorResult.Success(endOfPaginationReached = true)
+        }
+        val page = api.feed(cursor = key, limit = state.config.pageSize)
+        db.withTransaction {
+            if (loadType == LoadType.REFRESH) { db.feed().clear(); db.keys().clear() }
+            db.feed().insertAll(page.items.map { it.toEntity() })
+            db.keys().insert(RemoteKey(page.items.lastOrNull()?.id, page.nextCursor))
+        }
+        MediatorResult.Success(endOfPaginationReached = page.nextCursor == null)
+    } catch (e: IOException) {
+        MediatorResult.Error(e)          // Paging surfaces this as LoadState.Error
+    }
+}</pre></div>
+  <p>Two details that separate levels: the write is inside <code>withTransaction</code> so a crash mid-insert cannot leave the list and the keys table disagreeing; and <code>REFRESH</code> clears before inserting so a server-side reorder does not produce duplicates. Cursor-based keys rather than page numbers are also the correct choice for a feed where items are inserted at the head — page-number pagination on a live feed shows duplicates and skips items, which is a classic follow-up.</p>
+
+  <h2><span class="cn">Chapter 38</span>Dependency injection</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Dimension</th><th>Hilt / Dagger</th><th>Koin</th><th>Manual</th></tr></thead>
+    <tbody>
+      <tr><td>Graph validation</td><td>Compile time — a missing binding fails the build</td><td>Runtime — fails when the screen opens</td><td>Compile time (it is just constructors)</td></tr>
+      <tr><td>Build cost</td><td>Significant: kapt/KSP across modules</td><td>Negligible</td><td>None</td></tr>
+      <tr><td>Runtime cost</td><td>Near zero; generated code</td><td>Reflection-free but map lookups; measurable at startup with a large graph</td><td>Zero</td></tr>
+      <tr><td>Scoping</td><td>Rich, enforced, tied to Android components</td><td>Convention-based</td><td>Whatever you write</td></tr>
+      <tr><td>Best fit</td><td>Large multi-module apps with many teams</td><td>Small-to-medium apps, KMP-shared code</td><td>Small apps, libraries, and the composition root of any app</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>The honest Staff position:</strong> the compile-time-validation argument is decisive at scale — a runtime DI failure in a rarely-visited screen reaches production, and with 40 engineers that <em>will</em> happen. Below roughly ten engineers, Koin's build-time saving and simplicity often wins. And for a library you publish, no DI framework at all: expose constructors and let the consumer wire them, because forcing your DI choice on consumers is a hostile API decision.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — field injection everywhere, untestable</div><pre>class OrderRepository {
+    @Inject lateinit var api: Api
+    @Inject lateinit var db: Dao
+    @Inject lateinit var clock: Clock
+
+    init { AppComponent.inject(this) }   // service locator
+}
+// Cannot construct in a unit test without the graph.
+// Dependencies are invisible at the call site.</pre>
+      <p class="why">Hidden dependencies, uninitialised-field crashes, and tests that need the whole DI graph to run.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — constructor injection</div><pre>class OrderRepository @Inject constructor(
+    private val api: Api,
+    private val db: Dao,
+    private val clock: Clock,
+    private val io: CoroutineDispatcher,
+)
+
+// Test needs no framework at all:
+val repo = OrderRepository(FakeApi(), InMemoryDao(),
+    Clock.fixed(...), UnconfinedTestDispatcher())</pre>
+      <p class="why">Dependencies are visible, immutable, and the class is constructible without any container. Field injection is only for framework-instantiated types (Activity, Fragment, Worker) that you do not construct.</p></div>
+  </div>
+
+  <div class="panel">
+    <h4>Part V rapid recall</h4>
+    <ul>
+      <li>ViewModel exists for configuration change; it outlives the Activity, so never hold a Context or View.</li>
+      <li><code>repeatOnLifecycle</code> cancels the producer; <code>launchWhenStarted</code> only pauses delivery.</li>
+      <li>Room observable queries invalidate per table, not per row; bound them with <code>LIMIT</code> and indexes.</li>
+      <li>Every shipped schema version needs a migration path forever, tested with <code>MigrationTestHelper</code>.</li>
+      <li>SharedPreferences <code>apply()</code> drains synchronously at <code>onStop</code> — an ANR source. DataStore has no multi-process support.</li>
+      <li>WorkManager guarantees eventually, not soon; "within N minutes" requires a push trigger.</li>
+      <li>Cursor pagination, not page numbers, for live feeds; write pages and keys in one transaction.</li>
+      <li>Constructor injection always; field injection only for framework-constructed types.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p4" data-p="p4"><span class="k">Previous</span><span class="t">← Part IV</span></a><a class="r" href="#p6" data-p="p6"><span class="k">Next</span><span class="t">Part VI — Compose →</span></a></div>
+</section>

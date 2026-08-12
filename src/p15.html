@@ -1,0 +1,165 @@
+<section class="page" id="p15">
+  <header class="phead">
+    <p class="eyebrow">Part XV</p>
+    <h1><em>Security</em></h1>
+    <p class="deck">Threat modelling first, mitigations second. The organising principle for the whole part: obfuscation ≠ encryption ≠ security, and the client is hostile territory.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 92</span>Threat modelling a mobile client</h2>
+  <p>The foundational premise, and the sentence that most improves a security answer: <strong>the client runs on hardware the attacker controls.</strong> Everything shipped in the APK is readable; everything computed on-device can be altered; every network call can be observed and replayed. Security decisions follow from what that does and does not mean.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Attacker</th><th style="min-width:200px">Capability</th><th>What actually defends against it</th></tr></thead>
+    <tbody>
+      <tr><td>Casual, on-device</td><td>Reads shared storage, logs, backups</td><td>Keystore-backed encryption, no secrets in logs, correct backup rules</td></tr>
+      <tr><td>Malicious app, same device</td><td>Exported components, intent redirection, clipboard, accessibility abuse</td><td>Non-exported components, permission-protected receivers, immutable PendingIntents</td></tr>
+      <tr><td>Network attacker</td><td>MITM proxy, DNS spoofing, replay</td><td>TLS with correct validation, pinning where justified, idempotency and nonces</td></tr>
+      <tr><td>Device owner (rooted)</td><td>Full memory read, hooking, patched APK, disabled pinning</td><td>Essentially nothing client-side — this is why enforcement must be server-side</td></tr>
+      <tr><td>Reverse engineer</td><td>Decompiles the APK, extracts strings and logic</td><td>Nothing durable. Obfuscation raises effort; it does not prevent</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><span class="lab">The three-way distinction to state explicitly</span><p><strong>Obfuscation</strong> renames symbols: it raises the cost of understanding, and R8 does it as a side effect of shrinking. <strong>Encryption</strong> makes data unreadable without a key — but a key shipped in your APK is not a secret, so "encrypted with a hardcoded key" is obfuscation with extra steps. <strong>Security</strong> is a property of the whole system, and on mobile it comes overwhelmingly from the server enforcing authorisation. Candidates who conflate these get marked down hard on any security round.</p></div>
+
+  <h2><span class="cn">Chapter 93</span>Keystore, crypto, and secure storage</h2>
+  <p>The Android Keystore stores keys in hardware (TEE, or StrongBox on supported devices) so the key material never enters your process. You ask the Keystore to perform operations; you never hold the key. That is the entire security value, and it is why "we encrypt with a key in SharedPreferences" is not equivalent.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — theatre</div><pre>object Crypto {
+    private const val KEY = "MySuperSecretKey123!"   // in the APK
+    fun encrypt(s: String): String =
+        Base64.encodeToString(xor(s.toByteArray(), KEY.toByteArray()), 0)
+}
+
+// Also common and also wrong:
+prefs.edit().putString("auth_token", token).apply()   // plaintext
+Log.d(TAG, "Login ok, token=$token")                  // in logcat, in bug reports</pre>
+      <p class="why">The key is extractable with <code>strings</code> on the APK. The token in logs reaches crash reports, support bundles and any app with log access on older devices.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — hardware-backed, biometric-gated where warranted</div><pre>private fun getOrCreateKey(): SecretKey =
+    (KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        .getEntry(ALIAS, null) as? KeyStore.SecretKeyEntry)?.secretKey
+        ?: KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+            .apply {
+                init(KeyGenParameterSpec.Builder(ALIAS, PURPOSE_ENCRYPT or PURPOSE_DECRYPT)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                    .setUserAuthenticationRequired(true)        // biometric gate
+                    .setInvalidatedByBiometricEnrollment(true)  // new fingerprint ⇒ key dies
+                    .setIsStrongBoxBacked(hasStrongBox)
+                    .build())
+            }.generateKey()
+
+// GCM: never reuse an IV with the same key. Store the IV with the ciphertext.
+fun encrypt(plain: ByteArray): Pair&lt;ByteArray, ByteArray&gt; {
+    val c = Cipher.getInstance("AES/GCM/NoPadding")
+    c.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+    return c.iv to c.doFinal(plain)
+}</pre>
+      <p class="why"><code>setInvalidatedByBiometricEnrollment</code> is the line most implementations miss: without it, an attacker who can add a fingerprint gains access to the key. And IV reuse under GCM is a catastrophic, silent break.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 94</span>Identity: OAuth2, tokens, biometrics</h2>
+  <p>The correct mobile flow is <strong>Authorization Code with PKCE</strong>, in a Custom Tab — not an embedded WebView. The reasons matter in interviews: an embedded WebView means your app can read the user's credentials (so an identity provider cannot trust you, and increasingly blocks it), it does not share the system's session, and users cannot verify the URL bar to detect phishing.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Decision</th><th>Right answer</th><th>Reasoning</th></tr></thead>
+    <tbody>
+      <tr><td>Client secret in the app</td><td>None — mobile is a public client</td><td>It is extractable; PKCE replaces its role.</td></tr>
+      <tr><td>Token storage</td><td>Keystore-encrypted, not plain prefs</td><td>Backups, rooted devices, other apps on old versions.</td></tr>
+      <tr><td>Access token lifetime</td><td>Short — minutes to an hour</td><td>Limits the window if it leaks.</td></tr>
+      <tr><td>Refresh token</td><td>Rotating, with reuse detection</td><td>A replayed old refresh token signals theft; the server revokes the family.</td></tr>
+      <tr><td>Logout</td><td>Server-side revocation, not just local deletion</td><td>Deleting locally leaves a valid token in an attacker's hands.</td></tr>
+      <tr><td>Biometrics</td><td>A gate on a Keystore key, not a boolean</td><td>A <code>if (authenticated)</code> check is trivially patched out; a key that will not decrypt is not.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — biometrics as a boolean</div><pre>biometricPrompt.authenticate(promptInfo)
+// onAuthenticationSucceeded:
+override fun onAuthenticationSucceeded(r: AuthenticationResult) {
+    unlockApp()                     // patch this branch out: done
+    showBalance(cachedBalance)
+}</pre>
+      <p class="why">The check and the protected data are independent. Patching the APK, or hooking the callback with Frida, bypasses it entirely because nothing cryptographic depends on the result.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — biometrics unlocking a key</div><pre>val cipher = Cipher.getInstance(TRANSFORM).apply {
+    init(Cipher.DECRYPT_MODE, keystoreKey, GCMParameterSpec(128, iv))
+}
+biometricPrompt.authenticate(promptInfo, CryptoObject(cipher))
+
+override fun onAuthenticationSucceeded(r: AuthenticationResult) {
+    // The cipher is only usable BECAUSE the user authenticated.
+    val token = r.cryptoObject!!.cipher!!.doFinal(encryptedToken)
+    session.restore(token)
+}</pre>
+      <p class="why">Now the data is inaccessible without a successful authentication, enforced by hardware rather than by a branch in your code.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 95</span>Transport and platform hardening</h2>
+  <h4>Certificate pinning — and its operational risk</h4>
+  <p>Pinning defends against a compromised or user-installed CA. It also creates a way to brick your app remotely: if the pinned certificate is rotated and clients have not updated, every request fails and no app-side fix is possible. The Staff position is that pinning is a decision with an operational cost, and the answer must include: pin to an intermediate or use multiple pins including a backup key; set an expiry; have a remote-config kill switch for the pinning itself; and monitor pin-failure rates so a botched rotation is visible within minutes rather than after the app-store reviews.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — the classic catastrophic mistake</div><pre>// "Fixing" a staging certificate error
+val trustAll = object : X509TrustManager {
+    override fun checkServerTrusted(c: Array&lt;X509Certificate&gt;, a: String) {}
+    override fun checkClientTrusted(c: Array&lt;X509Certificate&gt;, a: String) {}
+    override fun getAcceptedIssuers() = arrayOf&lt;X509Certificate&gt;()
+}
+builder.hostnameVerifier { _, _ -&gt; true }</pre>
+      <p class="why">This disables TLS entirely. It is written for staging and shipped to production more often than anyone admits — Google Play actively flags it. Every request becomes trivially interceptable.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — Network Security Config, per build type</div><pre>&lt;!-- res/xml/network_security_config.xml (debug flavour only) --&gt;
+&lt;network-security-config&gt;
+  &lt;domain-config cleartextTrafficPermitted="false"&gt;
+    &lt;domain includeSubdomains="true"&gt;staging.example.com&lt;/domain&gt;
+    &lt;trust-anchors&gt;
+      &lt;certificates src="@raw/staging_ca"/&gt;   &lt;!-- specific, not "all" --&gt;
+    &lt;/trust-anchors&gt;
+  &lt;/domain-config&gt;
+&lt;/network-security-config&gt;
+
+&lt;!-- release: pins with a backup and an expiry --&gt;
+&lt;pin-set expiration="2027-01-01"&gt;
+  &lt;pin digest="SHA-256"&gt;base64PrimaryKeyHash=&lt;/pin&gt;
+  &lt;pin digest="SHA-256"&gt;base64BackupKeyHash=&lt;/pin&gt;
+&lt;/pin-set&gt;</pre>
+      <p class="why">Configuration rather than code, scoped per build type, so the permissive setting cannot leak into release. The declared expiry fails open rather than bricking the app if the pin is forgotten.</p></div>
+  </div>
+
+  <h4>WebView</h4>
+  <p>If a WebView loads any content you do not fully control: disable JavaScript unless required; never enable <code>allowFileAccessFromFileURLs</code>; treat <code>@JavascriptInterface</code> as remote code execution surface and expose the absolute minimum; and allow-list the loadable hosts. A WebView with a JS bridge and an attacker-controlled URL is the most severe vulnerability commonly found in Android apps.</p>
+
+  <h2><span class="cn">Chapter 96</span>Integrity and realistic expectations</h2>
+  <div class="q">
+    <p class="qt">Interview question · reveals security maturity instantly</p>
+    <p class="qh">"Product wants to prevent users on rooted devices from using the app. How would you do it?"</p>
+    <h4>What is being tested</h4>
+    <p>Whether you will implement a request uncritically, and whether you understand that client-side integrity checks are advisory. A candidate who lists five root-detection libraries has failed; one who reframes the requirement has passed.</p>
+    <h4>Answer <span class="chip c4">L4</span></h4>
+    <p>"First I'd ask what the actual risk is, because 'block rooted devices' is a solution, not a requirement. If it is fraud, root is a weak proxy — plenty of fraud comes from unrooted devices and plenty of rooted devices are developers. If it is a compliance requirement, that changes the answer, because then we need a defensible control rather than an effective one, and I would want that stated honestly.</p>
+    <p>Mechanically: any client-side detection can be defeated, because the attacker controls the runtime — Magisk hides root specifically from these checks, and Frida can hook the check itself. So detection raises effort; it does not prevent. The strongest available signal is <strong>Play Integrity</strong>, because the verdict is signed by Google's servers and validated on <em>our</em> server, which puts the trust decision somewhere the attacker does not control. Client-side root detection that gates a client-side branch is worth very little by comparison.</p>
+    <p>What I would actually propose: verify the Play Integrity verdict server-side; make the <em>server</em> decide what a device with a weak verdict may do — perhaps allow browsing but require step-up authentication for payments, rather than a binary block; monitor the verdict distribution so we can see whether the risk is real before we degrade anyone's experience; and never enforce it purely client-side.</p>
+    <p>And I'd name the cost, because this is the part product usually has not considered: hard-blocking rooted devices generates support load and one-star reviews from a technically vocal minority, and it will not stop a determined attacker. If the goal is fraud reduction, server-side behavioural signals will almost certainly outperform it."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What if they insist on the hard block?" — I implement it with Play Integrity server-side enforcement, log the impact, and revisit with data after a month. Disagree and commit, with a measurement attached.</li>
+      <li>"How would an attacker bypass Play Integrity?" — Not easily on the device, but they can attack the plumbing: replay an old verdict, or relay a verdict from a clean device. Hence nonce-binding each request and validating server-side.</li>
+      <li>"Does R8 obfuscation help?" — Marginally, against casual analysis. It is a shrinking tool with an obfuscation side effect, not a security control, and treating it as one is the mistake this whole part exists to prevent.</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Part XV rapid recall</h4>
+    <ul>
+      <li>The client is hostile territory; authorisation is enforced server-side or not at all.</li>
+      <li>Obfuscation ≠ encryption ≠ security. A key in the APK is not a secret.</li>
+      <li>Keystore keys never enter your process; gate them with <code>setUserAuthenticationRequired</code> and invalidate on biometric enrolment.</li>
+      <li>Never reuse a GCM IV; store it with the ciphertext.</li>
+      <li>Auth Code + PKCE in a Custom Tab; short access tokens, rotating refresh with reuse detection, server-side logout.</li>
+      <li>Biometrics must unlock a key, not flip a boolean.</li>
+      <li>Pinning needs backup pins, an expiry, a kill switch and monitoring — it is an operational risk.</li>
+      <li>Play Integrity validated server-side beats any client-side root detection.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p14" data-p="p14"><span class="k">Previous</span><span class="t">← Part XIV</span></a><a class="r" href="#p16" data-p="p16"><span class="k">Next</span><span class="t">Part XVI — Mobile System Design →</span></a></div>
+</section>

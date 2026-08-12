@@ -1,0 +1,186 @@
+<section class="page" id="p13">
+  <header class="phead">
+    <p class="eyebrow">Part XIII</p>
+    <h1>Testing <em>Strategy</em></h1>
+    <p class="deck">Testing as an economic decision: confidence purchased per unit of authoring time, maintenance and flake. At Staff level the question is never "did you write tests" but "what is your strategy and what did it cost".</p>
+  </header>
+
+  <h2><span class="cn">Chapter 81</span>What to test, and what not to</h2>
+  <p>Every test has a price: authoring, runtime on every CI job, and — the largest — maintenance when the code changes. A test is worth it when <em>expected defect cost prevented</em> exceeds that. This produces some unpopular conclusions worth stating plainly in an interview:</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:190px">Test</th><th>Verdict</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Domain rules, mappers, reducers</td><td>Always</td><td>Cheap, fast, high defect density, stable interfaces.</td></tr>
+      <tr><td>State holder / ViewModel behaviour</td><td>Always</td><td>Concurrency and state transitions are where real bugs live.</td></tr>
+      <tr><td>Repository with fakes</td><td>Usually</td><td>Cache/network interaction and error mapping.</td></tr>
+      <tr><td>Room migrations</td><td>Always</td><td>The failure mode is data loss, not a bug.</td></tr>
+      <tr><td>A composable's exact layout</td><td>Rarely</td><td>High churn, low defect density. Screenshot tests cover it better if it matters.</td></tr>
+      <tr><td>Getters, <code>data class</code> copy, DI wiring</td><td>No</td><td>Tests the compiler and the framework, not your logic.</td></tr>
+      <tr><td>Mocked interaction verification</td><td>Mostly no</td><td>Asserts implementation, not behaviour; breaks on every refactor.</td></tr>
+      <tr><td>Full E2E of every flow</td><td>No</td><td>Slow and flaky. Reserve for a handful of revenue-critical journeys.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><span class="lab">Coverage</span><p>Coverage is a diagnostic, not a target. A team told to hit 80% writes tests for getters. The useful version is coverage <em>of changed lines in a PR</em>, reviewed as information rather than enforced as a gate — and even then, treat a drop as a question, not a failure.</p></div>
+
+  <h2><span class="cn">Chapter 82</span>Test doubles: why fakes beat mocks at scale</h2>
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — mock-heavy, asserts implementation</div><pre>@Test fun loads_user() = runTest {
+    val repo = mockk&lt;UserRepository&gt;()
+    coEvery { repo.getUser("1") } returns user
+    coEvery { repo.getPrefs("1") } returns prefs
+    coEvery { repo.trackView(any()) } just Runs
+
+    val vm = ProfileViewModel(repo)
+    vm.load("1")
+
+    coVerify(exactly = 1) { repo.getUser("1") }   // implementation detail
+    coVerify { repo.trackView(any()) }
+}</pre>
+      <p class="why">Every refactor — caching the result, batching the two calls — breaks the test without any behaviour changing. Multiply by 4,000 tests and refactoring becomes economically impossible, which is how codebases ossify.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — a shared fake, asserts behaviour</div><pre>// Shipped from the module's test-fixtures, reused by every consumer.
+class FakeUserRepository : UserRepository {
+    private val users = MutableStateFlow(mapOf&lt;String, User&gt;())
+    var failNext: Throwable? = null
+
+    fun seed(u: User) { users.update { it + (u.id to u) } }
+    override fun observe(id: String) = users.map { it[id] }
+    override suspend fun getUser(id: String): User {
+        failNext?.let { failNext = null; throw it }
+        return users.value.getValue(id)
+    }
+}
+
+@Test fun shows_user_then_error_on_refresh_failure() = runTest {
+    val repo = FakeUserRepository().apply { seed(user) }
+    val vm = ProfileViewModel(repo)
+
+    vm.state.test {
+        assertEquals(Loading, awaitItem())
+        assertEquals(Ready(user), awaitItem())
+        repo.failNext = IOException()
+        vm.refresh()
+        assertEquals(Failed(retryable = true), awaitItem())
+    }
+}</pre>
+      <p class="why">The fake survives refactors, is reused by every team consuming the module, and makes the test read as a description of behaviour. The maintenance saving is the whole argument.</p></div>
+  </div>
+  <p><strong>When mocks are right:</strong> verifying that a side-effecting collaborator you do not own was called (an analytics SDK, a payment gateway), or standing in for an interface with too many methods to fake in a one-off test. The rule: fake the things you own and reuse; mock the things you neither own nor reuse.</p>
+
+  <h2><span class="cn">Chapter 83</span>Testing coroutines and Flow</h2>
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — real time, hardcoded dispatchers</div><pre>class SearchViewModel(repo: Repo) : ViewModel() {
+    fun search(q: String) {
+        viewModelScope.launch(Dispatchers.IO) { ... }   // not injectable
+    }
+}
+
+@Test fun searches() = runBlocking {
+    vm.search("shoes")
+    delay(500)                      // real sleep; flaky and slow
+    assertEquals(2, vm.state.value.results.size)
+}</pre>
+      <p class="why">A hardcoded dispatcher cannot be replaced, so the test races. <code>delay</code> in a test is a bet on machine speed: it passes locally and fails on a loaded CI agent, which is the single largest source of flake in Android codebases.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — injected dispatchers, virtual time</div><pre>class SearchViewModel(
+    private val repo: Repo,
+    private val io: CoroutineDispatcher,
+) : ViewModel()
+
+class MainDispatcherRule(
+    private val d: TestDispatcher = UnconfinedTestDispatcher()
+) : TestWatcher() {
+    override fun starting(d0: Description) = Dispatchers.setMain(d)
+    override fun finished(d0: Description) = Dispatchers.resetMain()
+}
+
+@get:Rule val dispatcherRule = MainDispatcherRule()
+
+@Test fun debounces_and_cancels_previous() = runTest {
+    val vm = SearchViewModel(repo, StandardTestDispatcher(testScheduler))
+    vm.state.test {
+        assertEquals(Idle, awaitItem())
+        vm.onQuery("sh"); advanceTimeBy(100)
+        vm.onQuery("sho"); advanceTimeBy(100)
+        vm.onQuery("shoe")
+        advanceTimeBy(300)               // virtual: instant
+        assertEquals(Loading, awaitItem())
+        assertEquals(Results(shoeResults), awaitItem())
+        assertEquals(1, repo.callCount)  // debounce actually worked
+    }
+}</pre>
+      <p class="why">Virtual time makes a 300 ms debounce test run in microseconds and deterministically. The <code>callCount</code> assertion is what proves the debounce, not just that results eventually arrived.</p></div>
+  </div>
+  <p><strong>The <code>StateFlow</code>/Turbine gotcha</strong> worth knowing: a <code>StateFlow</code> created with <code>WhileSubscribed</code> does not start until collected, so a test that reads <code>.value</code> without collecting sees only the initial value and appears broken. Inside <code>.test { }</code> the collection exists, which is one reason Turbine is the standard tool rather than a convenience.</p>
+
+  <h2><span class="cn">Chapter 84</span>UI, screenshot, and end-to-end tests</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Layer</th><th style="min-width:120px">Runtime</th><th>Buys / costs</th></tr></thead>
+    <tbody>
+      <tr><td>Unit (JVM)</td><td>ms</td><td>Logic correctness. Cannot catch integration or rendering bugs.</td></tr>
+      <tr><td>Robolectric</td><td>tens of ms</td><td>Framework interaction without a device. Some behaviours differ from real Android.</td></tr>
+      <tr><td>Compose UI test</td><td>seconds, on device</td><td>Real semantics and interaction. Needs an emulator in CI.</td></tr>
+      <tr><td>Screenshot</td><td>seconds</td><td>Visual regressions across themes, locales, font scales — cheaply, if the harness is deterministic.</td></tr>
+      <tr><td>E2E</td><td>minutes</td><td>Real confidence in a journey. Highest flake and maintenance; keep the count small and the journeys revenue-critical.</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Screenshot testing</strong> is the highest-leverage addition for a large app because it covers the combinatorial surface — light/dark, RTL, large font scale, small screen — that nobody tests manually. Its failure mode is nondeterminism: pin the font, disable animation and blinking cursors, use a fixed clock, and render off-device where possible. A flaky screenshot suite gets muted within a month, and then you are paying for nothing.</p>
+
+  <h2><span class="cn">Chapter 85</span>Contract testing the mobile/backend seam</h2>
+  <p>The most expensive mobile bugs frequently originate in a backend change that no mobile test could catch: a field becomes nullable, an enum gains a value, a list becomes paginated. Both sides' tests pass; production breaks.</p>
+  <div class="code1"><div class="lab">Three cheap defences, in increasing order of value</div><pre>// 1. Parse real recorded payloads, not hand-written happy-path JSON.
+@Test fun parses_production_sample() {
+    val dto = json.decodeFromString&lt;OrderDto&gt;(readResource("order_prod_sample.json"))
+    assertNotNull(dto.toDomain())
+}
+
+// 2. Assert the client tolerates the changes the server is allowed to make.
+@Test fun unknown_enum_value_does_not_crash() {
+    val dto = json.decodeFromString&lt;OrderDto&gt;("""{"status":"QUANTUM_PENDING"}""")
+    assertEquals(OrderStatus.Unknown, dto.toDomain().status)
+}
+
+// 3. Schema check in CI: fail the mobile build when the published
+//    OpenAPI/GraphQL schema removes a field the client still reads.
+//    This is the one that actually prevents the incident.</pre></div>
+  <p>The Staff framing: this is an organisational contract, not a test file. Somebody must own the rule "the mobile client's supported schema range is checked in the backend's CI" — because mobile cannot force-update installed clients, so the backend is always the party that must remain compatible.</p>
+
+  <h2><span class="cn">Chapter 86</span>Strategy for a large organisation</h2>
+  <div class="q">
+    <p class="qt">Interview question · Staff-level, frequently the whole round</p>
+    <p class="qh">"Our test suite takes 90 minutes and 15% of runs fail for unrelated reasons. Engineers have stopped trusting it. What do you do?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>It is the most common real state of a large Android codebase, and the answer reveals whether the candidate thinks in terms of test <em>counts</em> or test <em>economics</em>.</p>
+    <h4>Answer <span class="chip c4">L4</span></h4>
+    <p>"A 15% unrelated failure rate is worse than having no tests, because it trains engineers to re-run until green — which means real failures get re-run too. So flake is the first problem, not duration.</p>
+    <p><strong>Immediate (week one):</strong> instrument the suite. Record every test's pass/fail history per commit; a test that fails and then passes on the same commit is flaky by definition. That gives a ranked list, and typically 20 tests cause 80% of the flake.</p>
+    <p><strong>Quarantine policy:</strong> a test identified as flaky is moved out of the blocking suite within 24 hours and assigned to its owning team with a deadline. Not deleted — quarantined, visible on a dashboard, with an expiry after which it is deleted. The critical part is that quarantine is <em>automatic and cheap</em>, because a process requiring a meeting will not be used.</p>
+    <p><strong>Root causes, in the order I'd expect them:</strong> real-time delays instead of virtual time; shared state between tests, especially a singleton or a real database; tests depending on execution order; animations and emulator timing in UI tests; and genuine product race conditions — which are the valuable ones, because a flaky test there is telling you the truth.</p>
+    <p><strong>Duration:</strong> tier the suite. Pre-merge runs unit tests plus the tests affected by the changed modules — with a proper module graph that is usually a few minutes. Post-merge runs everything. Nightly runs E2E and screenshot suites. Add test sharding and remote caching. Most of the 90 minutes is usually unaffected modules being re-run.</p>
+    <p><strong>Measuring whether it worked:</strong> not test count or coverage. Median PR wall-clock time, flake rate, and — the outcome that justifies it — change failure rate and escaped-defect count. If tests are not reducing escaped defects, the suite is a cost centre and I would say so.</p>
+    <p><strong>The organisational half:</strong> ownership. Every test file needs an owning team via CODEOWNERS, otherwise flaky tests belong to nobody and the quarantine list grows forever. And I'd publish the flake dashboard where engineers already look, because visibility does more than policy."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What if a team refuses to fix their quarantined tests?" — The expiry does the work: after the deadline the test is deleted and the coverage loss is recorded. That converts an argument into a visible, owned trade-off.</li>
+      <li>"How do you decide what to run pre-merge?" — Module-graph-based test impact analysis: changed module plus its dependents. It requires the modularization from Part VIII, which is a good moment to note that these investments compound.</li>
+      <li>"Is 100% pre-merge ever right?" — For a small codebase with a fast suite, yes — simplicity wins. The tiering only pays above roughly 15–20 minutes.</li>
+      <li>"How do you measure test <em>quality</em>?" — Mutation testing on the domain layer gives a real signal where it is affordable; escaped-defect analysis (was there a test that should have caught this?) is cheaper and works everywhere.</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Part XIII rapid recall</h4>
+    <ul>
+      <li>Test economics: authoring + runtime + maintenance versus defect cost prevented.</li>
+      <li>Fake what you own and reuse; mock what you neither own nor reuse. Verify behaviour, not calls.</li>
+      <li>Inject dispatchers; use <code>runTest</code> virtual time; never <code>delay</code> in a test to wait for something.</li>
+      <li>Turbine for flows; a <code>WhileSubscribed</code> StateFlow does not start until collected.</li>
+      <li>Screenshot tests cover the theme/locale/font-scale combinatorics — but only if deterministic.</li>
+      <li>Contract checks belong in the backend's CI, because mobile cannot force-update clients.</li>
+      <li>Flake is worse than absence: automatic quarantine, owner, expiry, dashboard.</li>
+      <li>Measure PR wall-clock, flake rate and change failure rate — not coverage.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p12" data-p="p12"><span class="k">Previous</span><span class="t">← Part XII</span></a><a class="r" href="#p14" data-p="p14"><span class="k">Next</span><span class="t">Part XIV — Build &amp; CI/CD →</span></a></div>
+</section>

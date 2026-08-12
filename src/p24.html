@@ -1,0 +1,141 @@
+<section class="page" id="p24">
+  <header class="phead">
+    <p class="eyebrow">Part XXIV</p>
+    <h1>Organization-Scale <em>Architecture</em></h1>
+    <p class="deck">The questions that only appear at Staff and above, where the binding constraint is people rather than technology. There are no correct answers here — only defensible ones.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 152</span>Governance without becoming a bottleneck</h2>
+  <p>Every architecture-governance model sits on a spectrum between two failure modes: <strong>anarchy</strong> (twelve teams, twelve architectures, nothing shared) and <strong>the bottleneck</strong> (one person approves everything, and they are on holiday). The mechanisms below are ordered by how well they scale.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Mechanism</th><th>Scales to</th><th>Cost / failure mode</th></tr></thead>
+    <tbody>
+      <tr><td>Automated enforcement (lint, build rules, CI gates)</td><td>Unlimited</td><td>Only encodes mechanically-checkable rules; a bad rule is expensive to remove</td></tr>
+      <tr><td>Paved road (templates, generators, defaults)</td><td>Very large</td><td>Requires an owning team; rots if not maintained</td></tr>
+      <tr><td>ADRs (written, searchable, owned)</td><td>Large</td><td>Only works if people read them; needs a discovery mechanism</td></tr>
+      <tr><td>Architecture review for <em>significant</em> changes only</td><td>Medium</td><td>Requires a clear threshold, or everything becomes significant</td></tr>
+      <tr><td>Individual review by the architect</td><td>Small</td><td>The bottleneck. Does not survive growth or absence</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — governance by approval</div><pre>Rule: "All architectural changes must be approved
+       by the Architecture Council, which meets Thursdays."
+
+Outcome after two quarters:
+ · A two-week queue for a one-day decision
+ · Teams reclassify work to avoid the label
+ · The council reviews trivia and misses the real drift
+ · The architect becomes a full-time reviewer and stops building</pre>
+      <p class="why">Approval-based governance scales linearly with the reviewer's time and inversely with the org's velocity. Teams route around it, and the routing is invisible.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — defaults plus a narrow escalation</div><pre>Default path (no approval needed):
+ · Generate the module from the template
+ · Build rules enforce dependency boundaries automatically
+ · Lint encodes the decisions from published ADRs
+
+Escalation required only for:
+ · A new cross-team dependency
+ · A new persistence or transport technology
+ · Anything shipped to users that cannot be reversed
+   (data format, public SDK API, sync protocol)
+
+Escalation is: write a one-page ADR, get two named
+reviewers, 48-hour SLA. Not a meeting.</pre>
+      <p class="why">Ninety-plus percent of work needs no human gate because the paved road already encodes the decisions. The remaining decisions are genuinely one-way doors and deserve deliberation.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 153</span>Funding change with no immediate product value</h2>
+  <div class="q">
+    <p class="qt">Interview question · very common at Staff and above</p>
+    <p class="qh">"How do you convince teams to migrate to a new architecture when there's no immediate product value?"</p>
+    <h4>Answer <span class="chip c4">L4</span></h4>
+    <p>"I'd start by testing the premise, because 'no product value' sometimes means 'no value' and I would rather find that out before spending a quarter. If it holds, four moves.</p>
+    <p><strong>Translate to a business unit.</strong> Not 'the architecture is cleaner' but 'this costs us roughly 1.5 engineer-days per feature in workarounds and produced four incidents last year.' That converts to engineer-months and incident risk, which is a language product leadership can trade against.</p>
+    <p><strong>Shrink the first increment</strong> until it fits inside work teams are already doing. New screens use the new path; nobody backfills. Migration then has near-zero marginal cost, and the codebase converges over time without a project.</p>
+    <p><strong>Absorb the cost for the pilot.</strong> I do the first team's migration myself so their experience is reviewing a PR. The second team gets a codemod and a template; the third gets documentation and a lint rule. My involvement decays deliberately — otherwise I become the migration department.</p>
+    <p><strong>Attach it to something they already want.</strong> Our networking migration landed because it also fixed a flaky-test problem that was costing one team an hour a day. That was the actual reason they adopted it, and it is fine that it was.</p>
+    <p>What I would not do is mandate it. A mandate without absorbed cost produces compliance theatre — teams add the wrapper, keep the old path, and now you have both."</p>
+    <h4>Follow-ups</h4>
+    <ol>
+      <li>"When do you abandon it?" — When the pilot's numbers do not reproduce, when the team who must own it afterwards will not, or when a platform shift makes the target obsolete. I would rather stop at 30% than have a permanently half-migrated codebase carrying both costs.</li>
+      <li>"How do you handle the half-migrated state?" — Treat completion as the deliverable, not adoption. Publish a burn-down of remaining call sites; a migration without a visible end date does not finish.</li>
+      <li>"What if leadership just wants features?" — That is a legitimate position. My job is to make the cost visible and let them choose; if they choose features, I record the decision and revisit when the cost changes. Disagree and commit, with a date.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 154</span>Measuring architecture and preventing drift</h2>
+  <p>"How do you know your architecture is working?" is the question most candidates cannot answer, because architecture feels unmeasurable. It is not — you just have to measure its <em>effects</em>.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:110px">Type</th><th style="min-width:190px">Metric</th><th>What it tells you</th></tr></thead>
+    <tbody>
+      <tr><td>Leading</td><td>Median incremental build time</td><td>Module graph health; the metric engineers feel daily</td></tr>
+      <tr><td>Leading</td><td>PRs touching more than one team's modules</td><td>Boundary quality. Rising = boundaries are wrong</td></tr>
+      <tr><td>Leading</td><td>Boundary-violation count (lint suppressions)</td><td>Drift, before it becomes structural</td></tr>
+      <tr><td>Leading</td><td>Time to first merged commit for a new hire</td><td>Comprehensibility, and it is easy to collect</td></tr>
+      <tr><td>Lagging</td><td>Change failure rate; incidents per release</td><td>Whether the structure actually reduces defects</td></tr>
+      <tr><td>Lagging</td><td>Lead time from merge to production</td><td>Whether the delivery pipeline matches the structure</td></tr>
+      <tr><td>Lagging</td><td>Effort per feature over time</td><td>The real question: is the system getting easier or harder to change?</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Drift</strong> is what happens between reviews: a boundary crossed "just this once", a lint suppression added under deadline, a second source of truth introduced by a team who did not know about the first. The counter-measures are mechanical, because vigilance is not a strategy — dependency rules in the build, a lint baseline that can only shrink, a periodic report of new suppressions with owners, and a standing budget so teams have a way to fix drift that does not require permission.</p>
+
+  <h2><span class="cn">Chapter 155</span>Twenty org-scale scenarios</h2>
+
+  <div class="q">
+    <p class="qt">Scenario 1 · the classic</p>
+    <p class="qh">"You inherit an Android app with 5M DAU and 500 engineers. The architecture has become impossible to change. What do you do?"</p>
+    <h4>The trap</h4>
+    <p>Proposing a target architecture in the first minute. With 500 engineers, the constraint is coordination, not design — and any answer that does not acknowledge that is scored as Senior.</p>
+    <h4>Answer <span class="chip c4">L4</span> <span class="chip c5">L5</span></h4>
+    <p>"<strong>First 30 days: measure, do not propose.</strong> I would want four things. Where does engineering time actually go — build waits, merge conflicts, cross-team blocking, incident response? What does the change-failure rate look like by area? Which files and modules have the highest churn and the highest defect density, since those are where the architecture is hurting most? And what do the engineers say — 20 conversations across teams surfaces the real pain faster than any dashboard.</p>
+    <p>'Impossible to change' is a symptom with several possible causes: build times, coupling, missing tests, unclear ownership, or fear from past incidents. They have completely different fixes, and choosing before diagnosing is how these programmes fail.</p>
+    <p><strong>Next 60 days: one visible win.</strong> Pick the highest-pain, lowest-risk item — usually build time or test flake — and fix it measurably. With 500 engineers, credibility is the currency for everything after, and nobody grants it based on a strategy document.</p>
+    <p><strong>Then: a written strategy with a small number of invariants.</strong> Not a target architecture diagram — three or four rules that every team can follow independently: features do not depend on features; one owner per module; one source of truth per domain concept; new code uses the paved road. Invariants scale to 500 engineers in a way that a diagram does not.</p>
+    <p><strong>Then: make the right thing the easy thing.</strong> Templates, generators, automated boundary enforcement. At this size, mechanisms beat mandates by an enormous margin — a lint rule reaches 500 engineers and a wiki page reaches none.</p>
+    <p><strong>Sequencing:</strong> stop the bleeding first (enforce boundaries on new code), then migrate the highest-value areas, then the long tail — accepting that some of the long tail will never migrate and that is an acceptable outcome. A permanently half-migrated codebase is bad; a deliberately partially-migrated one with a documented boundary is fine.</p>
+    <p><strong>What I would explicitly not do:</strong> a rewrite; a big-bang reorganisation; or an architecture I personally review. All three fail at this scale, and the third fails slowest, which makes it the most seductive.</p>
+    <p><strong>Time horizon:</strong> 18–24 months for structural change at this size, with quarterly measurable milestones. Anyone promising two quarters has not done it."</p>
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:200px">Scenario</th><th>The key move</th></tr></thead>
+    <tbody>
+      <tr><td>2. Standardise across 20 teams with different stacks</td><td>Standardise the <em>interfaces</em> between teams, not their internals. Mandate the seams, leave the insides alone.</td></tr>
+      <tr><td>3. Quality vs a hard external deadline</td><td>Separate non-negotiable (data, security, irreversible) from negotiable; make the shortcut explicit with an owner and expiry.</td></tr>
+      <tr><td>4. When should you <em>not</em> refactor?</td><td>Code about to be deleted; code nobody touches; code you do not understand and have no tests for; and when the team lacks capacity to finish — a half-refactor is worse than none.</td></tr>
+      <tr><td>5. Chartering a mobile platform team</td><td>Charter it as a product with internal customers and satisfaction metrics, not as a service desk. Without that, it becomes a ticket queue within two quarters.</td></tr>
+      <tr><td>6. Build vs buy at scale</td><td>Buy anything that is not differentiating; build what is. Then examine the exit cost — the real risk is a vendor you cannot leave, not the licence fee.</td></tr>
+      <tr><td>7. Surviving a reorg mid-migration</td><td>Re-establish ownership immediately; migrations die when their owner changes teams. Get the new owner named in writing in the first week.</td></tr>
+      <tr><td>8. Two teams building the same thing</td><td>Not a technical problem. Find out why — usually one team could not get the other's roadmap priority. Fix the incentive, then merge the code.</td></tr>
+      <tr><td>9. A team consistently ships poor quality</td><td>Diagnose before intervening: capacity, unclear ownership, missing tooling, or skill. Only one of those is a people problem, and it is the least common.</td></tr>
+      <tr><td>10. Deprecating a widely-used internal library</td><td>Announce with a date and a migration path; provide a codemod; track the burn-down publicly; do not delete until it reaches zero. Deprecation without a burn-down never completes.</td></tr>
+      <tr><td>11. Establishing standards without a bottleneck</td><td>Encode in automation; escalate only one-way doors; publish ADRs; delegate the review authority to a named group, not a person.</td></tr>
+      <tr><td>12. Justifying a platform investment to a CFO-minded audience</td><td>Engineer-hours converted to money, incident cost, and time-to-market. Never technical elegance.</td></tr>
+      <tr><td>13. Mobile and backend disagree on an API contract</td><td>Escalate on the asymmetry: the server can deploy hourly, installed clients cannot update. Compatibility obligations therefore sit with the server, and that is a principle, not a preference.</td></tr>
+      <tr><td>14. Ten thousand-line PRs are normal here</td><td>Attack the cause — usually slow review or long-lived branches — not the symptom. Fast review SLAs shrink PRs more reliably than a size limit.</td></tr>
+      <tr><td>15. Adopting a technology you personally dislike</td><td>Evaluate against the org's constraints, state your reservation once with evidence, then commit fully and publicly. Visible reluctance from a Staff engineer poisons an adoption.</td></tr>
+      <tr><td>16. An SDK your app depends on is abandoned</td><td>Risk-classify it, wrap it behind your own interface if it is not already, plan replacement, and add "wrapped and replaceable" to the third-party integration standard so the next one is cheaper.</td></tr>
+      <tr><td>17. Feature flags have accumulated to 400</td><td>Flags need expiry dates and owners at creation. Stale flags are untested code paths — a correctness risk, not just clutter. Automate the cleanup reminder.</td></tr>
+      <tr><td>18. Engineers keep re-litigating settled decisions</td><td>The decision was not written down, or it was written where nobody looks. Publish ADRs, link them from the lint failure message — that is where people actually read.</td></tr>
+      <tr><td>19. Everyone wants to work on the new thing, nobody on the old</td><td>Make maintenance visible and credited in promotion cases; rotate ownership; and be honest that some legacy work should be funded as a fixed cost rather than volunteered for.</td></tr>
+      <tr><td>20. You are becoming the single point of failure</td><td>Write down what only you know; delegate a domain entirely, including the authority; and measure your success by decisions made well without you.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XXIV rapid recall</h4>
+    <ul>
+      <li>Governance scales through automation and defaults; approval-based governance does not.</li>
+      <li>Escalate only genuine one-way doors; everything else follows the paved road.</li>
+      <li>Fund change with engineer-months and incident counts, not elegance.</li>
+      <li>Absorb the migration cost for the pilot, then decay your involvement deliberately.</li>
+      <li>Measure architecture by build time, cross-team PRs, boundary violations, change failure rate, and effort per feature.</li>
+      <li>Drift is countered mechanically — baselines that only shrink, suppression reports, standing budget.</li>
+      <li>At 500 engineers: measure first, one visible win, then invariants — never a diagram or a rewrite.</li>
+      <li>18–24 months for structural change at scale, with quarterly milestones.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p23" data-p="p23"><span class="k">Previous</span><span class="t">← Part XXIII</span></a><a class="r" href="#p25" data-p="p25"><span class="k">Next</span><span class="t">Part XXV — Traps →</span></a></div>
+</section>

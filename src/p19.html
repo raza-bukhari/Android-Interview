@@ -1,0 +1,148 @@
+<section class="page" id="p19">
+  <header class="phead">
+    <p class="eyebrow">Part XIX</p>
+    <h1>Production <em>Incidents</em></h1>
+    <p class="deck">Twelve incidents presented the way an interviewer presents them — with incomplete information. Reason first, then read the walkthrough. The pattern being taught is the reasoning, not the answers.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 128</span>Incident response for mobile</h2>
+  <p>Mobile incidents differ from server incidents in one decisive way, and stating it early in any incident question is a strong signal: <strong>you cannot recall the binary.</strong> Everything follows from that.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Phase</th><th>Server</th><th>Mobile</th></tr></thead>
+    <tbody>
+      <tr><td>Detect</td><td>Seconds — metrics and alerts</td><td>Minutes to hours — Vitals and Crashlytics lag, and the signal is diluted across versions</td></tr>
+      <tr><td>Mitigate</td><td>Roll back the deploy</td><td>Halt the rollout (affects new installs only) → kill switch → server-side fix → forward hotfix</td></tr>
+      <tr><td>Blast radius</td><td>All users at once</td><td>Bounded by rollout percentage — which is why staged rollout <em>is</em> the primary control</td></tr>
+      <tr><td>Recovery time</td><td>Minutes</td><td>Hours (flag) to days (release), and never 100% of users</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Severity, defined before you need it:</strong> SEV1 — data loss, security exposure, or a core flow broken for a large cohort. SEV2 — significant degradation with a workaround. SEV3 — contained, non-blocking. Publish the definitions, because arguing about severity during an incident is how thirty minutes disappear.</p>
+  <div class="note"><span class="lab">Roles worth naming</span><p>Incident commander (decides, does not debug), communications lead (updates stakeholders on a fixed cadence), and investigators. A Staff engineer in an incident is usually the commander, and the most common failure is that they get absorbed into debugging and stop coordinating.</p></div>
+
+  <h2><span class="cn">Chapter 129</span>Twelve incidents</h2>
+
+  <div class="q">
+    <p class="qt">Incident 1</p>
+    <p class="qh">ANRs increased 40% after a release</p>
+    <p><strong>First move:</strong> segment. Version, OS, OEM, device tier, and whether the rise tracks the rollout curve. Check whether the <em>previous</em> version's ANR rate also rose over the same window — if it did, it is an OS or Play Services change, not us.</p>
+    <p><strong>Likely causes, ranked:</strong> new synchronous work on a startup or resume path; a lock now held across I/O; an SDK upgrade doing main-thread work; a broadcast receiver doing work inline.</p>
+    <p><strong>Diagnosis:</strong> read the ANR traces and examine <em>every</em> thread. Main blocked on a monitor means the bug is in whatever holds the lock. <strong>Mitigation:</strong> halt the rollout immediately — that is free and reversible — then fix. <strong>Prevention:</strong> StrictMode penalty-death in internal builds, and an ANR-rate halt criterion on staged rollout.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 2</p>
+    <p class="qh">Battery consumption doubled</p>
+    <p><strong>First move:</strong> Vitals excessive-wakeup and stuck-wakelock metrics, segmented by version. Battery complaints are also frequently misattributed by users, so confirm with data before investigating.</p>
+    <p><strong>Likely causes:</strong> a wakelock not released on an error path; a periodic job whose interval was reduced; location updates continuing after the screen turns off; a socket held while backgrounded; a retry loop against a failing endpoint (which also explains a simultaneous data-usage rise).</p>
+    <p><strong>Diagnosis:</strong> Battery Historian on a dogfood build reproducing the pattern; look for wakelock duration and wakeup count rather than CPU. <strong>The retry-loop case is the one people miss</strong> — a backend endpoint started failing, and the client's unbounded retry is now the battery bug. <strong>Prevention:</strong> wakelocks with timeouts and <code>finally</code> release; a circuit breaker; wakeup-count alerts.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 3</p>
+    <p class="qh">Memory grows steadily over several hours; OOM crashes in long sessions</p>
+    <p><strong>Key discriminator:</strong> a <em>leak</em> (retained garbage) versus <em>unbounded growth</em> (live, reachable, and by design). LeakCanary finds the first and is silent on the second — so silence from LeakCanary does not exonerate.</p>
+    <p><strong>Diagnosis:</strong> heap dumps at 10 minutes and 2 hours, compared. Sort by retained size and diff the class histograms. Growth in your own collection classes points to unbounded accumulation; multiple Activity instances point to a leak.</p>
+    <p><strong>Common cause:</strong> a <code>StateFlow</code> accumulating an ever-growing list of events, messages or log entries (Part XII, Exercise 4). <strong>Fix:</strong> bound the window and page from disk. <strong>Prevention:</strong> LeakCanary in instrumented CI plus a long-session soak test with a memory assertion.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 4</p>
+    <p class="qh">Login fails intermittently for about 5% of users</p>
+    <p><strong>Segment first:</strong> 5% is a suspiciously specific number — check whether it maps to a rollout bucket, a region, a device clock skew, an OEM, or a specific auth provider.</p>
+    <p><strong>Ranked hypotheses:</strong> the token-refresh race (Part IX) invalidating rotating refresh tokens for users with concurrent requests; clock skew causing JWT <code>nbf</code>/<code>exp</code> validation to fail on devices with wrong time; a CDN or DNS issue in one region; certificate pinning failing after a partial rotation; or a race between session restore and the first authenticated request on cold start.</p>
+    <p><strong>Diagnosis:</strong> the client must log a structured auth-failure reason — not "login failed." Without that, this is unsolvable, which makes it also a lesson: <strong>instrument the failure taxonomy before you need it.</strong> <strong>Prevention:</strong> single-flight refresh, server-side clock in responses with client offset correction, and pin-failure monitoring.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 5</p>
+    <p class="qh">Offline users see stale data after reconnecting</p>
+    <p><strong>Likely causes:</strong> the sync cursor advanced without the data being applied (a non-transactional sync — Part XVII); missing tombstones so deletions never arrive; the reconnect not triggering a delta fetch; or an observable query that is not invalidated because writes bypassed Room's change tracking (raw SQL, or a second database instance).</p>
+    <p><strong>Diagnosis:</strong> reproduce with a deterministic harness — go offline, mutate server-side, reconnect — and log cursor progression. Compare the local row count and version against the server for one affected user. <strong>Prevention:</strong> cursor advanced only inside the applying transaction; a sync-lag metric (time since last successful sync, p95) alerted on.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 6</p>
+    <p class="qh">A payment was charged twice</p>
+    <p><strong>This is a SEV1</strong>: money, trust, and possibly a regulatory report. Mitigate first — disable the client-side retry path via remote config, and coordinate with the backend on reconciliation and refunds — then investigate.</p>
+    <p><strong>Cause, almost always:</strong> the idempotency key was generated per <em>attempt</em> rather than per <em>user commit</em>, or it was held only in memory and regenerated after process death, or the server's key retention window expired before the client's offline queue drained.</p>
+    <p><strong>Fix:</strong> key created at commit, persisted before the first call, reused forever for that operation (Part XVI, Chapter 113). <strong>Prevention:</strong> a test asserting the key is stable across process death; a server-side alert on duplicate charges to the same payee for the same amount within a short window — because that detects the class regardless of which client causes it.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 7</p>
+    <p class="qh">Push notifications are delayed by 20+ minutes for some users</p>
+    <p><strong>Likely causes:</strong> messages sent at normal priority rather than high (normal priority is deferred in Doze); the app in a restricted App Standby bucket after low engagement; OEM battery optimisation, which is aggressive on several manufacturers and is often the whole answer; FCM registration token rotation not being re-registered; or the fan-out being backlogged server-side.</p>
+    <p><strong>Diagnosis:</strong> segment by OEM immediately — a delay concentrated on two manufacturers is a platform behaviour, not a bug in your code. Compare server send timestamp with client receipt timestamp; without that pair, you are guessing.</p>
+    <p><strong>Reality to state:</strong> you cannot guarantee push latency. If the product requires timely delivery, the design must tolerate delay — fetch on resume, in-app fallback, and honest UX. <strong>Prevention:</strong> a send-to-receive latency metric, and a high-priority budget so engagement pushes cannot consume the reputational allowance that transactional ones need.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 8</p>
+    <p class="qh">A Compose screen became extremely slow after a routine change</p>
+    <p><strong>First check:</strong> the Compose compiler metrics diff between the two builds. One class becoming unstable — often by adding a <code>List</code> field or a type from a non-Compose module — can make a whole subtree unskippable.</p>
+    <p><strong>Other candidates:</strong> a <code>key</code> removed from a lazy list; state read moved from a deferred lambda into composition; an expensive derivation added to an item body; a <code>SubcomposeLayout</code> introduced in a hot path; or a baseline profile that no longer covers the changed code path.</p>
+    <p><strong>Diagnosis:</strong> Layout Inspector recomposition counts, then a system trace to distinguish composition cost from layout and draw. <strong>Prevention:</strong> Macrobenchmark on the screen's scroll journey gated in CI, and compiler-metrics diffing in the PR.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 9</p>
+    <p class="qh">Cold start went from 700 ms to 2.5 s</p>
+    <p><strong>Bisect by version:</strong> a step change points to one release; a gradual slope points to accumulation. <strong>Then bisect by content:</strong> a build with the new SDK disabled, a build with the new initialiser removed.</p>
+    <p><strong>Ranked causes:</strong> a new SDK initialised eagerly in <code>Application.onCreate</code> (the most common by a wide margin); a blocking network or disk call added to startup; a baseline profile that stopped being generated — silently, in a build-config change; a content provider added by a dependency; or a large increase in classes loaded before the first frame.</p>
+    <p><strong>Diagnosis:</strong> system trace of a cold start on a mid-tier device; look at the span between process fork and first frame. <strong>Prevention:</strong> the three-tier initialisation policy with an owner, and a Macrobenchmark startup budget failing the build on regression (Part XI).</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 10</p>
+    <p class="qh">Crashes only on the newest Android version</p>
+    <p><strong>Typical causes:</strong> a behaviour change gated on <code>targetSdk</code>; a newly-enforced restriction (background start, exact alarms, foreground service type, package visibility); a hidden API that is now blocked; or a stricter permission requirement.</p>
+    <p><strong>Diagnosis:</strong> the stack trace usually names the enforcement directly — <code>SecurityException</code>, <code>MissingForegroundServiceTypeException</code>, and similar are self-describing. <strong>Mitigation:</strong> if it is targetSdk-gated, the fastest safe mitigation may be a remote-config kill switch on the feature, not a targetSdk downgrade (which Play policy constrains anyway).</p>
+    <p><strong>Prevention — the real answer:</strong> a preview-SDK testing programme. Every Android release ships behaviour changes months in advance; an organisation that first meets them in production has a process gap, not a bug. That framing is what makes this a Staff answer.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 11</p>
+    <p class="qh">Analytics events dropped 30% with no crash-rate change</p>
+    <p>A silent-failure incident, and the hardest class to detect. <strong>Causes:</strong> a batching change losing the buffer on process death; events queued in a scope cancelled at navigation; a consent or privacy change suppressing them correctly (i.e. not a bug); a schema change rejected server-side with the client ignoring the error; or a sampling config misapplied.</p>
+    <p><strong>The lesson worth stating:</strong> telemetry needs its own telemetry. A client-side counter of events <em>enqueued</em> versus server-side events <em>received</em>, reconciled daily, is what turns this from an accidental discovery into an alert. Most organisations discover analytics loss weeks later during a business review.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Incident 12</p>
+    <p class="qh">A third-party SDK outage is taking the app down</p>
+    <p><strong>Symptom:</strong> the app hangs at launch or crashes for all users, correlated with a vendor incident rather than with any release of ours.</p>
+    <p><strong>Cause:</strong> an SDK initialised synchronously at startup, performing a blocking network call with a long timeout — so a vendor's slow endpoint becomes our startup ANR. Or the SDK crashes on a malformed response and takes the process with it.</p>
+    <p><strong>Immediate mitigation:</strong> remote-config kill switch on the SDK's initialisation, if one exists. If it does not, that is the finding. <strong>Prevention, and the Staff answer:</strong> every third-party SDK gets an integration standard — initialised off the critical path, wrapped behind an interface we own, guarded by a kill switch, with a timeout we control, and an owner responsible for evaluating it. "We depend on eleven SDKs and can disable none of them" is an architecture problem, not an incident.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 130</span>Observability that makes incidents survivable</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Signal</th><th>What it must capture</th><th>Common gap</th></tr></thead>
+    <tbody>
+      <tr><td>Crash-free users <em>and</em> sessions</td><td>Both, segmented by version, OS, device tier</td><td>Reporting only sessions hides a small cohort crashing constantly</td></tr>
+      <tr><td>Breadcrumbs</td><td>Navigation, network outcomes, key state transitions</td><td>Logging screen names but not the failure taxonomy — see Incident 4</td></tr>
+      <tr><td>Structured error codes</td><td>Machine-readable reason on every failure path</td><td>"Something went wrong" as both the UI copy <em>and</em> the log line</td></tr>
+      <tr><td>Trace correlation</td><td>A request ID shared with the backend</td><td>No way to join client symptom to server cause during an incident</td></tr>
+      <tr><td>Sync and queue health</td><td>Time since last sync, outbox depth, conflict rate</td><td>Entirely absent in most apps, and the only way to see silent data problems</td></tr>
+      <tr><td>PII discipline</td><td>Allow-list what may be logged</td><td>Tokens and emails in breadcrumbs, discovered during a compliance audit</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Telemetry cost is a real budget line.</strong> A verbose analytics client can generate gigabytes per user per year, costing money on both the ingestion bill and the user's data plan. Sampling policy, event schema review, and a cost-per-event dashboard belong to whoever owns observability — and at Staff level, that is often you.</p>
+
+  <div class="panel">
+    <h4>Part XIX rapid recall</h4>
+    <ul>
+      <li>No rollback exists: halt rollout → kill switch → server-side fix → forward hotfix.</li>
+      <li>Segment before hypothesising: version, OS, OEM, tier, rollout percentage.</li>
+      <li>Check whether the <em>previous</em> version regressed too — it separates "us" from "the platform".</li>
+      <li>Read every thread in an ANR trace; the cause is usually the lock holder.</li>
+      <li>LeakCanary silence does not rule out unbounded growth.</li>
+      <li>Idempotency keys are per user commit and persisted, or you will double-charge.</li>
+      <li>Push latency cannot be guaranteed; design for delay and measure send-to-receive.</li>
+      <li>Instrument the failure taxonomy before the incident, or the incident is unsolvable.</li>
+      <li>Every third-party SDK needs a kill switch and an owner.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p18" data-p="p18"><span class="k">Previous</span><span class="t">← Part XVIII</span></a><a class="r" href="#p20" data-p="p20"><span class="k">Next</span><span class="t">Part XX — Coding Interview →</span></a></div>
+</section>

@@ -1,0 +1,210 @@
+<section class="page" id="p21">
+  <header class="phead">
+    <p class="eyebrow">Part XXI</p>
+    <h1>Code Review <em>Interviews</em></h1>
+    <p class="deck">Snippets with layered defects, and expert reviews that model not only what is wrong but review <em>voice</em> — because how you deliver a review is part of what is being assessed.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 142</span>What a Staff review looks for</h2>
+  <p>Junior reviewers find style issues. Senior reviewers find bugs. Staff reviewers find <strong>the precedent a change sets</strong> — because in a 300-module codebase, a pattern merged once is a pattern copied fifty times.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Severity</th><th style="min-width:180px">Meaning</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr><td>Blocking</td><td>Correctness, security, data loss, or a boundary violation</td><td>Race condition, leaked scope, PII in logs, feature-to-feature dependency</td></tr>
+      <tr><td>Should fix</td><td>Will cost us later; author decides timing</td><td>Untestable construction, missing failure path, unbounded collection</td></tr>
+      <tr><td>Consider</td><td>A genuine option, author's call</td><td>Naming, structure, an alternative operator</td></tr>
+      <tr><td>Note</td><td>Information, no action</td><td>"This interacts with the migration in #4412"</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>Label every comment.</strong> An unlabelled review is a wall of equally-weighted opinions, and the author cannot tell what blocks the merge. In an interview, saying "these two are blocking, the rest are optional" is itself a strong signal — it demonstrates you can be reviewed <em>by</em> as well as review.</p>
+
+  <h2><span class="cn">Chapter 143</span>Fifteen snippets</h2>
+
+  <div class="q">
+    <p class="qt">Review 1</p>
+    <p class="qh">ViewModel with four defects</p>
+    <div class="code1"><div class="lab">Review this</div><pre>class OrderViewModel(private val context: Context) : ViewModel() {
+    val orders = MutableLiveData&lt;List&lt;Order&gt;&gt;()
+
+    fun load() {
+        GlobalScope.launch(Dispatchers.Main) {
+            try {
+                val result = withContext(Dispatchers.IO) { Api.service.getOrders() }
+                orders.value = result
+                Log.d("Orders", "Loaded for ${Session.token}")
+            } catch (e: Exception) {
+                Toast.makeText(context, "Error", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+}</pre></div>
+    <h4>Expert review</h4>
+    <ul>
+      <li><strong>[Blocking] <code>Context</code> in a ViewModel.</strong> The ViewModel outlives configuration changes, so this leaks the Activity and its whole view tree. Errors belong in state; the UI decides how to display them.</li>
+      <li><strong>[Blocking] <code>GlobalScope</code>.</strong> No cancellation when the screen closes; the coroutine keeps a reference to this ViewModel. Use <code>viewModelScope</code>.</li>
+      <li><strong>[Blocking] token in a log line.</strong> This reaches logcat, bug reports and crash breadcrumbs. Never log credentials — and I'd add a lint rule rather than only a comment, because this is the third time this quarter.</li>
+      <li><strong>[Blocking] <code>catch (e: Exception)</code></strong> swallows <code>CancellationException</code>, so a cancelled load shows an error toast on a screen the user already left.</li>
+      <li><strong>[Should fix] Mutable state exposed.</strong> <code>MutableLiveData</code> is public, so any collaborator can write to it. Expose an immutable type.</li>
+      <li><strong>[Should fix] Singletons.</strong> <code>Api.service</code> and <code>Session</code> are static, making this untestable without the whole graph. Inject them.</li>
+      <li><strong>[Note] <code>withContext(IO)</code></strong> is redundant if <code>getOrders()</code> is a Retrofit <code>suspend</code> function — those are already main-safe.</li>
+    </ul>
+    <p><strong>Voice:</strong> lead with the two that risk user harm (leak, logged token), group the rest, and offer the mechanism (lint rule) rather than only the criticism. In an interview, say which comments you would leave <em>as questions</em> — "is <code>getOrders</code> already main-safe here?" — because an experienced reviewer does not assert what they can cheaply ask.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Review 2</p>
+    <p class="qh">Compose screen</p>
+    <div class="code1"><div class="lab">Review this</div><pre>@Composable
+fun ProductList(viewModel: ProductViewModel) {
+    val state by viewModel.state.collectAsState()
+    val formatter = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+
+    LaunchedEffect(state) { viewModel.trackScreenView() }
+
+    LazyColumn {
+        items(state.products) { product -&gt;
+            Row(Modifier.clickable { viewModel.onClick(product) }) {
+                Text(product.name)
+                Text(formatter.format(product.releaseDate))
+                AsyncImage(model = product.imageUrl, contentDescription = null)
+            }
+        }
+    }
+}</pre></div>
+    <h4>Expert review</h4>
+    <ul>
+      <li><strong>[Blocking] <code>LaunchedEffect(state)</code></strong> re-fires on every state change, so the screen-view event is sent dozens of times. Key it on <code>Unit</code>, or on a stable screen identifier.</li>
+      <li><strong>[Blocking] no <code>key</code> in <code>items</code>.</strong> Item state and animations attach to positions; an insertion at the head shifts everything. Add <code>key = { it.id }</code>, and <code>contentType</code> if rows are heterogeneous.</li>
+      <li><strong>[Should fix] <code>collectAsState</code></strong> keeps collecting while backgrounded. Use <code>collectAsStateWithLifecycle()</code>.</li>
+      <li><strong>[Should fix] formatter allocated per composition</strong> and used per item. Format in the state mapper so the UI receives a <code>String</code>; <code>SimpleDateFormat</code> is also not thread-safe.</li>
+      <li><strong>[Should fix] the composable takes the ViewModel</strong>, so it cannot be previewed or screenshot-tested. Split into a stateful route and a stateless screen (Part VI).</li>
+      <li><strong>[Should fix] image not sized.</strong> Constrain the request to the display size or a fast scroll will decode full-resolution bitmaps.</li>
+      <li><strong>[Consider] <code>contentDescription = null</code></strong> — is the image decorative? If it conveys the product, it needs a description.</li>
+    </ul>
+  </div>
+
+  <div class="q">
+    <p class="qt">Review 3</p>
+    <p class="qh">Repository</p>
+    <div class="code1"><div class="lab">Review this</div><pre>@Singleton
+class UserRepository @Inject constructor(private val api: Api) {
+    private val cache = mutableMapOf&lt;String, User&gt;()
+
+    suspend fun getUser(id: String): User? {
+        cache[id]?.let { return it }
+        return try {
+            val user = api.getUser(id)
+            cache[id] = user
+            user
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun clearCache() { cache.clear() }
+}</pre></div>
+    <h4>Expert review</h4>
+    <ul>
+      <li><strong>[Blocking] the map is not thread-safe</strong> and this is a singleton. Concurrent writes from different screens can corrupt it. Use a mutex, a concurrent map, or move the cache to the database.</li>
+      <li><strong>[Blocking] errors collapse into <code>null</code>.</strong> The caller cannot distinguish "no such user" from "network down" from "auth expired", so the UI cannot offer retry, and a token expiry silently looks like a missing user. Return a result type or let the exception propagate.</li>
+      <li><strong>[Blocking] <code>catch (e: Exception)</code></strong> swallows cancellation.</li>
+      <li><strong>[Should fix] unbounded cache with no invalidation.</strong> It grows for the process lifetime and never refreshes, so a user who edits their profile keeps seeing the old one. What is the intended staleness policy?</li>
+      <li><strong>[Should fix] no way to observe changes.</strong> If another screen or a sync worker updates this user, nothing propagates. Consider Room as the source of truth with an observable query.</li>
+      <li><strong>[Consider] <code>clearCache()</code></strong> suggests callers are managing invalidation manually, which never stays correct. Whose responsibility is it?</li>
+    </ul>
+  </div>
+
+  <div class="q">
+    <p class="qt">Review 4</p>
+    <p class="qh">Concurrency</p>
+    <div class="code1"><div class="lab">Review this</div><pre>class UploadManager(private val api: Api) {
+    private var isUploading = false
+    private val queue = mutableListOf&lt;File&gt;()
+
+    suspend fun upload(file: File) {
+        queue.add(file)
+        if (isUploading) return
+        isUploading = true
+        while (queue.isNotEmpty()) {
+            val f = queue.removeAt(0)
+            api.upload(f)
+        }
+        isUploading = false
+    }
+}</pre></div>
+    <h4>Expert review</h4>
+    <ul>
+      <li><strong>[Blocking] check-then-act race.</strong> Two coroutines can both read <code>isUploading == false</code> and both start draining, processing the same file twice — and uploads are rarely idempotent.</li>
+      <li><strong>[Blocking] the list is mutated concurrently</strong> without synchronisation.</li>
+      <li><strong>[Blocking] <code>isUploading</code> is never reset on failure.</strong> One thrown exception leaves it <code>true</code> forever and uploads stop silently for the rest of the session — the worst kind of bug, because there is no error anywhere.</li>
+      <li><strong>[Blocking] no durability.</strong> The queue is in memory; process death loses queued uploads the user believes are pending. Uploads belong in WorkManager or a persisted outbox (Part XX).</li>
+      <li><strong>[Should fix] no retry, no backoff, no cancellation handling.</strong></li>
+    </ul>
+    <p><strong>The Staff comment:</strong> "Rather than fixing the mutex here, I'd replace this with the outbox pattern we already use for messages — this class is re-implementing durability and will keep acquiring the same bugs. Happy to pair on it."</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Review 5</p>
+    <p class="qh">Flow usage</p>
+    <div class="code1"><div class="lab">Review this</div><pre>class FeedViewModel(private val repo: FeedRepository) : ViewModel() {
+    val feed: Flow&lt;List&lt;Post&gt;&gt; = repo.observeFeed()
+
+    val unreadCount: Flow&lt;Int&gt; = repo.observeFeed().map { it.count { p -&gt; !p.read } }
+
+    private val _events = MutableSharedFlow&lt;Event&gt;(replay = 1)
+    val events: SharedFlow&lt;Event&gt; = _events
+}</pre></div>
+    <h4>Expert review</h4>
+    <ul>
+      <li><strong>[Blocking] <code>replay = 1</code> on an event flow.</strong> After rotation the new collector immediately receives the last event, so navigation happens twice. Events need <code>replay = 0</code> with buffered capacity, or a <code>Channel</code>.</li>
+      <li><strong>[Blocking] the upstream is collected twice.</strong> <code>observeFeed()</code> is cold, so <code>feed</code> and <code>unreadCount</code> each start their own — two database queries or two network calls. Derive both from one <code>stateIn</code>.</li>
+      <li><strong>[Should fix] exposing a raw <code>Flow</code> to the UI</strong> means no initial value and re-collection on every configuration change. Use <code>stateIn(viewModelScope, WhileSubscribed(5_000), initial)</code>.</li>
+      <li><strong>[Should fix] no error handling.</strong> An exception in the upstream cancels the collector and the screen goes blank with no message. Model failure as state.</li>
+      <li><strong>[Consider] <code>_events</code> is exposed by upcast only</strong> — <code>asSharedFlow()</code> is clearer about intent.</li>
+    </ul>
+  </div>
+
+  <div class="q">
+    <p class="qt">Reviews 6–15</p>
+    <p class="qh">Defect catalogue for self-practice</p>
+    <p>Each of these is a realistic snippet type; the defect list is what an expert review would surface. Write your own review first.</p>
+    <div class="tw"><table>
+      <thead><tr><th style="min-width:190px">Snippet</th><th>Planted defects</th></tr></thead>
+      <tbody>
+        <tr><td>6. Fragment with a listener</td><td>Registered against application context; not unregistered; binding held past <code>onDestroyView</code>; anonymous inner class capturing the fragment.</td></tr>
+        <tr><td>7. Worker doing sync</td><td>Not unique work (duplicates); no backoff; returns <code>Result.failure()</code> for transient errors; holds a wakelock without timeout; assumes it runs immediately.</td></tr>
+        <tr><td>8. Deep-link handler</td><td>No host validation; opens a WebView at an arbitrary URL; unvalidated ID parsed straight into a query; auth check performed after the screen renders.</td></tr>
+        <tr><td>9. Room DAO and migration</td><td><code>fallbackToDestructiveMigration</code> in release; unbounded observable query; missing index on the filter column; relation query without <code>@Transaction</code>.</td></tr>
+        <tr><td>10. OkHttp setup</td><td>Trust-all manager left from staging; logging interceptor with headers in release; no timeouts configured; refresh implemented in an interceptor rather than an <code>Authenticator</code>.</td></tr>
+        <tr><td>11. Over-abstracted feature</td><td>Six one-line use cases; an interface per class with one implementation; a mapper per layer with identical fields; a factory for a data class.</td></tr>
+        <tr><td>12. Test file</td><td><code>delay()</code> to wait for async work; mocks verifying call counts; shared mutable state between tests; a real database with no reset; assertion on a formatted string that changes with locale.</td></tr>
+        <tr><td>13. Custom view / Canvas</td><td>Paint and Path allocated in <code>onDraw</code>; no <code>save</code>/<code>restore</code> balance; invalidate called from a background thread; no <code>onDetachedFromWindow</code> cleanup for the animator.</td></tr>
+        <tr><td>14. DI module</td><td><code>@Singleton</code> on something holding an Activity context; scope mismatch producing two instances; field injection where constructor injection is possible; a provider doing I/O.</td></tr>
+        <tr><td>15. Feature-to-feature import</td><td>Direct dependency between two feature modules; a shared model duplicated with drift; navigation by string route with no type safety; a boundary crossed that the build rules should have blocked.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <h2><span class="cn">Chapter 144</span>Review as a leadership instrument</h2>
+  <p>At Staff level, review is one of the few mechanisms that scales your judgment. Four practices worth being able to describe:</p>
+  <ul>
+    <li><strong>Encode repeated feedback.</strong> If you have left the same comment three times, it becomes a lint rule, a template, or a documented default. Repeating yourself in review does not scale and eventually reads as nitpicking.</li>
+    <li><strong>Review the design, not the diff, when the diff is too late.</strong> A 2,000-line PR implementing the wrong architecture cannot be fixed in review. Push the conversation earlier — a design doc or a 20-minute call before the work starts.</li>
+    <li><strong>Disagreeing with a senior author:</strong> state the concern, the concrete failure scenario, and the cost — then explicitly say whether it blocks. "I think this races when two screens load simultaneously; here's the interleaving. If you disagree, I'm fine merging — but I'd want a test either way."</li>
+    <li><strong>Review SLAs matter more than review depth.</strong> A team where PRs wait two days ships worse code overall, because authors batch changes into larger PRs that are harder to review. Advocating for fast review is a quality intervention, not a velocity one.</li>
+  </ul>
+
+  <div class="panel">
+    <h4>Part XXI rapid recall</h4>
+    <ul>
+      <li>Label every comment blocking / should fix / consider / note.</li>
+      <li>Lead with user harm: leaks, races, data loss, logged credentials.</li>
+      <li>Watch for the recurring set: <code>GlobalScope</code>, <code>catch (Exception)</code>, Context in a ViewModel, missing keys, unshared cold flows, replay on event flows, unbounded caches, check-then-act.</li>
+      <li>Ask rather than assert where a question is cheaper.</li>
+      <li>Name the precedent, not just the bug — that is the Staff signal.</li>
+      <li>Encode repeated feedback into lint; move architecture debates before the diff.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p20" data-p="p20"><span class="k">Previous</span><span class="t">← Part XX</span></a><a class="r" href="#p22" data-p="p22"><span class="k">Next</span><span class="t">Part XXII — Architecture Review →</span></a></div>
+</section>

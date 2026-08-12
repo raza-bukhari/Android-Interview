@@ -1,0 +1,187 @@
+<section class="page" id="p9">
+  <header class="phead">
+    <p class="eyebrow">Part IX</p>
+    <h1><em>Networking</em></h1>
+    <p class="deck">From TCP behaviour on a flaky cellular link to the client/server contract negotiation a Staff engineer is expected to lead. Mobile networking is a latency and failure problem, not a bandwidth problem.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 60</span>The transport stack for mobile engineers</h2>
+  <p>The facts that change client design:</p>
+  <ul>
+    <li><strong>Connection setup dominates.</strong> On LTE, DNS + TCP handshake + TLS can cost 200–600 ms before a byte of your payload moves. On a cold connection, five sequential requests cost five round-trip penalties — which is why request count matters far more than payload size on mobile.</li>
+    <li><strong>Radio state is a battery cost.</strong> The cellular radio ramps to a high-power state for a transfer and stays there for a tail period (seconds) afterwards. Ten small requests spread over a minute cost far more battery than one batched request, even with identical bytes.</li>
+    <li><strong>HTTP/2 multiplexes over one connection</strong>, removing head-of-line blocking at the HTTP layer but not at TCP. HTTP/3 (QUIC) removes it at the transport layer too and survives network changes via connection IDs — genuinely valuable when a user walks from Wi-Fi to cellular.</li>
+    <li><strong>TLS 1.3</strong> cuts the handshake to one round trip, and session resumption to zero. Enabling it is usually a server-side change with a measurable client-side latency win.</li>
+  </ul>
+
+  <div class="note"><span class="lab">The number to quote</span><p>A useful framing for design interviews: on a typical mobile connection, assume 100–300 ms RTT, 5–15% of requests failing or timing out on cellular during movement, and a 2–5 second cost for a full cold connection setup on a poor link. Designs that assume the desktop-web reality (fast, reliable, always-on) fail on all of these.</p></div>
+
+  <h2><span class="cn">Chapter 61</span>REST, GraphQL, gRPC</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Dimension</th><th>REST</th><th>GraphQL</th><th>gRPC</th></tr></thead>
+    <tbody>
+      <tr><td>Payload fit</td><td>Fixed per endpoint; over-fetching is normal</td><td>Client selects fields — the strongest mobile argument</td><td>Fixed per method, but compact binary</td></tr>
+      <tr><td>Round trips</td><td>Often several per screen</td><td>One per screen, by design</td><td>Several, but cheap; streaming built in</td></tr>
+      <tr><td>Caching</td><td>HTTP caching works out of the box</td><td>No HTTP caching (POST); needs a normalised client cache</td><td>No HTTP caching; roll your own</td></tr>
+      <tr><td>Schema evolution</td><td>Versioning by convention; easy to break clients</td><td>Strongly typed, deprecation built in</td><td>Strong; field numbers make it safe</td></tr>
+      <tr><td>Tooling/debuggability</td><td>Excellent; readable in any proxy</td><td>Good, but queries are opaque in logs</td><td>Binary — needs tooling to inspect</td></tr>
+      <tr><td>Client cost</td><td>Lowest</td><td>Normalised cache is a real subsystem</td><td>Codegen plus a larger binary</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>The Staff answer</strong> is per-surface, not per-company: GraphQL where a screen aggregates many resources and the field set varies by client version; gRPC for high-frequency streaming (location, telemetry) where binary size and bidirectional streams pay; REST for everything else, because its caching and debuggability are free. And name the hidden cost: a GraphQL client without a normalised cache re-fetches everything, and with one you have taken on cache-consistency bugs.</p>
+
+  <h2><span class="cn">Chapter 62</span>OkHttp and Retrofit</h2>
+  <p>Interceptor placement is the detail interviewers use to check whether you have really operated this stack.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:180px">Type</th><th>Sees</th><th>Use for</th></tr></thead>
+    <tbody>
+      <tr><td>Application interceptor</td><td>One call, the final response; not invoked for cache hits; sees redirects as one call</td><td>Auth headers, analytics, request tagging</td></tr>
+      <tr><td>Network interceptor</td><td>Every wire request including redirects and retries; sees the raw response</td><td>Compression, cache-header rewriting, wire-level logging</td></tr>
+      <tr><td><code>Authenticator</code></td><td>Only 401 responses</td><td>Token refresh with automatic replay of the original request</td></tr>
+      <tr><td><code>EventListener</code></td><td>DNS, connect, TLS, request/response timings</td><td>Real per-phase latency metrics — the right source for "is it DNS or the server?"</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 63</span>Auth, token refresh, and single-flight coordination</h2>
+  <p>The most-asked networking scenario at Staff level: <em>a token expires while five requests are in flight — design a solution that produces one refresh, not five.</em> It is asked because the naive implementation is both obvious and wrong, and because the failure mode (users randomly logged out) is one most candidates have actually seen without diagnosing.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — refresh in an interceptor</div><pre>class AuthInterceptor(...) : Interceptor {
+    override fun intercept(chain: Chain): Response {
+        var res = chain.proceed(withToken(chain.request()))
+        if (res.code == 401) {
+            val new = runBlocking { api.refresh() }   // no coordination
+            res.close()
+            res = chain.proceed(withToken(chain.request(), new))
+        }
+        return res
+    }
+}</pre>
+      <p class="why">Every concurrent 401 refreshes independently: with rotating refresh tokens, the first succeeds and the rest invalidate each other, logging the user out. Also no retry cap — a permanently-401ing endpoint loops.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — Authenticator + single-flight</div><pre>class TokenAuthenticator(
+    private val store: TokenStore,
+    private val api: RefreshApi,
+) : Authenticator {
+    private val mutex = Mutex()
+
+    override fun authenticate(route: Route?, response: Response): Request? {
+        if (response.priorResponseCount() &gt;= 2) return null   // give up
+        val stale = response.request.bearer()
+
+        val fresh = runBlocking {
+            mutex.withLock {
+                store.access()
+                    ?.takeIf { it != stale }        // someone already refreshed
+                    ?: runCatching { api.refresh(store.refresh()) }
+                        .onSuccess { store.save(it) }
+                        .map { it.access }
+                        .getOrElse { store.clear(); null }
+            }
+        } ?: return null
+
+        return response.request.newBuilder()
+            .header("Authorization", "Bearer $fresh").build()
+    }
+}</pre>
+      <p class="why">OkHttp calls <code>Authenticator</code> only on 401 and replays the original request for you. The stale-token comparison collapses N concurrent refreshes into one; the prior-response cap prevents infinite retry.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 64</span>Resilience: retries, backoff, idempotency</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Failure</th><th>Retry?</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Connection failure, DNS, timeout on connect</td><td>Yes</td><td>Request almost certainly never reached the server.</td></tr>
+      <tr><td>Read timeout after the request was sent</td><td>Only if idempotent</td><td>The server may have processed it. This is the dangerous case.</td></tr>
+      <tr><td>500 / 502 / 503 / 504</td><td>Yes, with backoff and jitter</td><td>Transient server-side. Honour <code>Retry-After</code> when present.</td></tr>
+      <tr><td>429</td><td>Yes, respecting <code>Retry-After</code></td><td>Retrying immediately makes the rate-limit worse.</td></tr>
+      <tr><td>400 / 401 / 403 / 404 / 422</td><td>No</td><td>Deterministic. Retrying wastes battery and hides the bug.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="code1"><div class="lab">Retry with full jitter — and why jitter is not optional</div><pre>suspend fun &lt;T&gt; retrying(
+    attempts: Int = 4,
+    baseMs: Long = 300,
+    maxMs: Long = 8_000,
+    isRetryable: (Throwable) -&gt; Boolean,
+    block: suspend () -&gt; T,
+): T {
+    var last: Throwable? = null
+    repeat(attempts) { i -&gt;
+        try { return block() } catch (e: CancellationException) {
+            throw e                                  // never swallow
+        } catch (e: Throwable) {
+            if (!isRetryable(e) || i == attempts - 1) throw e
+            last = e
+            val ceiling = min(maxMs, baseMs shl i)   // 300, 600, 1200, 2400
+            delay(Random.nextLong(0, ceiling))       // FULL jitter
+        }
+    }
+    throw last!!
+}</pre></div>
+  <p><strong>Why jitter matters at scale:</strong> a backend blip fails a million clients simultaneously. Without jitter they all retry at exactly t+300 ms, then t+900 ms — a synchronised thundering herd that keeps the backend down. Full jitter spreads the retries uniformly. This is the difference between a 30-second blip and a 20-minute outage, and it is a favourite Staff follow-up.</p>
+
+  <div class="q">
+    <p class="qt">Interview question · the one that separates payments experience</p>
+    <p class="qh">"A payment request times out. You don't know whether the server processed it. What do you do?"</p>
+    <h4>Short answer</h4>
+    <p>Never blind-retry. The client generates an idempotency key before the first attempt and reuses it for every retry, so a duplicate request is recognised server-side and returns the original result.</p>
+    <h4>Deep explanation <span class="chip c4">L4</span></h4>
+    <p>"This is the unknown-outcome problem, and it cannot be solved on the client alone — it is a contract with the backend, so the first thing I'd do in a design review is establish that contract.</p>
+    <p>The client generates a UUID <em>at the moment the user commits</em>, not per attempt, and persists it with the pending operation so it survives process death. Every retry — including one after an app restart — sends the same <code>Idempotency-Key</code>. The server stores key → result for a defined window and returns the original response for repeats.</p>
+    <p>What if we never get a response at all? Then we do not guess. The client shows the payment as <em>pending</em>, not failed, and reconciles: poll the order status by the idempotency key, or wait for a push. Showing 'payment failed' when it may have succeeded is worse than showing 'processing' — the user retries and, if the key were per-attempt, pays twice.</p>
+    <p>Things I'd want defined explicitly: how long the server retains keys (if it is 24 hours and our offline queue can be older, we have a correctness gap); whether the key is scoped per user; and what the server returns for a key replayed with a <em>different</em> body, which should be a hard error rather than a silent overwrite.</p>
+    <p>For observability, I'd emit a metric for 'requests completed with unknown outcome' — it is invisible in normal crash and error dashboards, and it is exactly the number that tells you this system is healthy."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"Where is the key stored?" — In the local database alongside the pending operation, written <em>before</em> the network call. In memory is not sufficient; process death is the case you are defending against.</li>
+      <li>"What if the user force-quits and reopens?" — The pending operation is still in the queue with its key; the sync worker resumes and either learns the result or retries safely.</li>
+      <li>"How would you test it?" — A fake server that accepts the request and then drops the response, asserting the client retries with the same key and does not create a second order; plus a process-death test around the persisted queue.</li>
+      <li>"Does this apply outside payments?" — Any non-idempotent write: posting a message, submitting a form, placing a booking. Payments is where the cost of getting it wrong is visible, not where the problem is unique.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 65</span>Caching and conditional requests</h2>
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — a hand-rolled cache next to the HTTP cache</div><pre>class ProductRepo(private val api: Api) {
+    private val memo = mutableMapOf&lt;String, Product&gt;()   // never invalidated
+
+    suspend fun get(id: String): Product =
+        memo.getOrPut(id) { api.product(id) }
+}</pre>
+      <p class="why">Two caches with different lifetimes and no coordination. The user pulls to refresh, OkHttp revalidates, and this map still returns yesterday's price. Also unbounded — a leak on a long session.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — one source of truth, HTTP for revalidation</div><pre>// OkHttp handles conditional requests automatically when
+// the server sends ETag / Last-Modified.
+OkHttpClient.Builder()
+    .cache(Cache(File(ctx.cacheDir, "http"), 20L * 1024 * 1024))
+    .build()
+
+// The app's source of truth is the database; the network
+// updates it, and the UI observes only the database.
+fun product(id: String): Flow&lt;Product&gt; = dao.observe(id)
+
+suspend fun refresh(id: String) {
+    val dto = api.product(id)     // 304 → served from HTTP cache, cheap
+    dao.upsert(dto.toEntity())
+}</pre>
+      <p class="why">One place holds truth. HTTP caching handles revalidation bandwidth; the database handles offline and consistency. The two layers have distinct jobs instead of competing.</p></div>
+  </div>
+
+  <h4>Connectivity is not a boolean</h4>
+  <p>A frequent design flaw is gating requests on <code>isConnected</code>. Real states include: no interface; connected to Wi-Fi with no internet (captive portal); connected but metered; connected with high latency; and mid-handover between Wi-Fi and cellular where sockets die but the network is "available". The right posture is <strong>attempt and handle failure</strong>, using connectivity signals only to schedule retries and to inform the UI — never as a precondition. <code>NetworkCapabilities.NET_CAPABILITY_VALIDATED</code> is the closest thing to "the internet actually works," and even that lags reality.</p>
+
+  <div class="panel">
+    <h4>Part IX rapid recall</h4>
+    <ul>
+      <li>Latency and round-trip count dominate mobile networking; radio tail time makes chatty clients expensive in battery.</li>
+      <li>Application interceptors miss cache hits; network interceptors see every wire attempt; <code>Authenticator</code> only sees 401s and replays for you.</li>
+      <li>Refresh must be single-flight, compared against the stale token, with a retry cap.</li>
+      <li>Retry connection failures freely; retry post-send timeouts only with an idempotency key; never retry 4xx.</li>
+      <li>Full jitter prevents the synchronised retry herd that turns a blip into an outage.</li>
+      <li>Idempotency keys are generated at user commit, persisted before the call, reused across process death.</li>
+      <li>One source of truth: database for state, HTTP cache for revalidation bandwidth.</li>
+      <li>Connectivity is not a boolean; attempt and handle failure rather than gating.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p8" data-p="p8"><span class="k">Previous</span><span class="t">← Part VIII</span></a><a class="r" href="#p10" data-p="p10"><span class="k">Next</span><span class="t">Part X — Storage &amp; Caching →</span></a></div>
+</section>

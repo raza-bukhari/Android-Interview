@@ -1,0 +1,202 @@
+<section class="page" id="p8">
+  <header class="phead">
+    <p class="eyebrow">Part VIII</p>
+    <h1>Modularization <em>at Scale</em></h1>
+    <p class="deck">Module structure is an organisational instrument as much as a technical one. Every decision here is simultaneously a build-time decision, an ownership decision, and a decision about who can break whom.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 55</span>Module taxonomy and dependency rules</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:170px">Module type</th><th style="min-width:180px">May depend on</th><th>Owns</th></tr></thead>
+    <tbody>
+      <tr><td><code>:app</code></td><td>Everything</td><td>Assembly, DI root, navigation wiring. Contains almost no logic.</td></tr>
+      <tr><td><code>:feature:*</code></td><td><code>:core:*</code> only — never another feature</td><td>Screens, state holders, feature-local navigation.</td></tr>
+      <tr><td><code>:core:domain-*</code></td><td>Nothing Android</td><td>Entities, rules, repository interfaces. Pure Kotlin, JVM tests.</td></tr>
+      <tr><td><code>:core:data-*</code></td><td>Its domain module, <code>:core:network</code>, <code>:core:database</code></td><td>Repository implementations, DTOs, mappers, caching policy.</td></tr>
+      <tr><td><code>:core:designsystem</code></td><td>Nothing app-specific</td><td>Theme, components. Reviewed like a public API.</td></tr>
+      <tr><td><code>:core:*-api</code> / <code>:core:*-impl</code></td><td>API depends on nothing; impl depends on api</td><td>The seam that keeps the graph shallow.</td></tr>
+      <tr><td><code>:test-fixtures</code></td><td>The module it fixtures</td><td>Fakes and builders shared by consumers' tests.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — api leaks the whole graph</div><pre>// core/data-cart/build.gradle.kts
+dependencies {
+    api(project(":core:network"))     // leaks Retrofit to every consumer
+    api(project(":core:database"))    // leaks Room entities too
+    api(libs.okhttp)
+}</pre>
+      <p class="why">Every consumer now compiles against Retrofit and Room. An OkHttp bump recompiles the world, and a feature engineer can accidentally call the network directly from a composable.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — implementation by default</div><pre>dependencies {
+    // Only types that appear in this module's public signatures:
+    api(project(":core:domain-cart"))
+
+    implementation(project(":core:network"))
+    implementation(project(":core:database"))
+    implementation(libs.okhttp)
+}</pre>
+      <p class="why"><code>api</code> only for types in your public API surface. This both shrinks the compile classpath — a large build-time win — and makes the illegal call a compile error rather than a review comment.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 56</span>Breaking cycles: feature-to-feature navigation</h2>
+  <p>The recurring problem: <code>:feature:cart</code> must open a product detail owned by <code>:feature:catalog</code>, and <code>:feature:catalog</code> must open the cart. A direct dependency in both directions is a cycle Gradle refuses.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — the "shared" escape hatch</div><pre>// Everyone depends on :core:shared, which grows to
+// hold ProductScreen, CartScreen, the analytics client,
+// the date formatter and 400 other things.
+:feature:cart    -&gt; :core:shared
+:feature:catalog -&gt; :core:shared</pre>
+      <p class="why">The cycle is technically gone and the coupling is worse: <code>:core:shared</code> is now a single point that every team edits and every build recompiles. This is the most common failure of a first modularization attempt.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — a route contract, assembled at the top</div><pre>// :core:navigation-api  (depends on nothing)
+sealed interface Dest {
+    data class Product(val id: String) : Dest
+    data object Cart : Dest
+}
+interface Navigator { fun go(dest: Dest) }
+
+// :feature:cart — depends only on the api
+class CartViewModel(private val nav: Navigator) {
+    fun onLineClick(id: String) = nav.go(Dest.Product(id))
+}
+
+// :app — the only module that knows both features
+navController.graph {
+    composable&lt;Dest.Product&gt; { ProductRoute(...) }
+    composable&lt;Dest.Cart&gt;    { CartRoute(...) }
+}</pre>
+      <p class="why">Features depend on an abstraction owned by nobody's team, and <code>:app</code> — which already depends on everything — does the wiring. The graph stays a DAG and stays shallow.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 57</span>Build performance and graph shape</h2>
+  <p>Two graphs with the same module count can differ by minutes per build. What matters:</p>
+  <ul>
+    <li><strong>Depth beats width.</strong> A deep chain serialises: nothing downstream compiles until upstream finishes. A wide, shallow graph parallelises across cores. Prefer many small leaf modules over a five-level pyramid.</li>
+    <li><strong>ABI stability decides incremental cost.</strong> Changing a function <em>body</em> recompiles one module; changing a public <em>signature</em> recompiles every dependent. This is why <code>implementation</code> and api/impl splits pay off — they shrink the set of modules that can be invalidated.</li>
+    <li><strong>Annotation processing is the usual bottleneck.</strong> Migrating kapt → KSP is typically the single largest available win in a Dagger/Room codebase.</li>
+    <li><strong>Measure before restructuring.</strong> A build scan tells you which tasks dominate; intuition is reliably wrong. Restructuring a graph on a hunch is weeks of work for a possible regression.</li>
+  </ul>
+
+  <div class="code1"><div class="lab">Diagnosing, in order</div><pre># 1. Where does the time actually go?
+./gradlew assembleDebug --scan            # task timeline, cache hits/misses
+
+# 2. Is the configuration phase the problem? (large graphs: often yes)
+./gradlew help --scan                     # config time with no work
+
+# 3. What does a one-line change actually recompile?
+touch core/domain-cart/src/.../Cart.kt
+./gradlew assembleDebug --scan            # count invalidated modules
+
+# 4. Turn on the cheap wins before restructuring anything:
+org.gradle.caching=true
+org.gradle.configuration-cache=true
+org.gradle.parallel=true</pre></div>
+
+  <h2><span class="cn">Chapter 58</span>Convention plugins and version catalogs</h2>
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — 180 copies of the same build file</div><pre>// repeated in every module, drifting over time
+android {
+    compileSdk = 35
+    defaultConfig { minSdk = 24 }
+    compileOptions { /* ... */ }
+}
+kotlin { jvmToolchain(17) }
+dependencies {
+    implementation("androidx.core:core-ktx:1.13.1")  // version drift
+}</pre>
+      <p class="why">Upgrading the compile SDK becomes a 180-file pull request, and three modules will be missed. Version strings drift, producing duplicate transitive versions and confusing resolution failures.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — convention plugin + catalog</div><pre>// build-logic/.../AndroidFeatureConventionPlugin.kt
+class AndroidFeatureConventionPlugin : Plugin&lt;Project&gt; {
+    override fun apply(target: Project) = with(target) {
+        pluginManager.apply("com.android.library")
+        pluginManager.apply("org.jetbrains.kotlin.android")
+        configureKotlinAndroid()
+        dependencies {
+            add("implementation", project(":core:designsystem"))
+            add("implementation", libs.findLibrary("hilt").get())
+        }
+    }
+}
+
+// feature/cart/build.gradle.kts — the whole file
+plugins { id("myapp.android.feature") }</pre>
+      <p class="why">One place to change the toolchain. New modules are correct by construction, which is what makes a paved road real rather than documented.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 59</span>Exercise — a travel app, 100+ engineers</h2>
+  <div class="q">
+    <p class="qt">Design exercise · 45 minutes</p>
+    <p class="qh">"Design the module architecture for a travel app: flights, hotels, cars, packages, loyalty, payments. 100+ engineers across 12 teams. Current state: one 400k-line module, 25-minute builds."</p>
+    <h4>Requirements to establish first</h4>
+    <p>Before drawing anything, a Staff candidate pins down: how are teams organised (by vertical or by layer)? Is there a shared booking flow, or four independent ones? Is the backend one API or per-vertical? What is the release cadence, and does every team ship on the same train? These change the answer materially — if teams are organised by layer rather than vertical, module-per-vertical will fight the org chart and lose.</p>
+
+    <h4>Target structure</h4>
+    <div class="code1"><div class="lab">Ownership-aligned, four tiers deep maximum</div><pre>:app                                  platform team — assembly only
+
+:vertical:flights:feature-search      flights team
+:vertical:flights:feature-booking     flights team
+:vertical:flights:domain              flights team  (pure Kotlin)
+:vertical:flights:data                flights team
+:vertical:hotels:*                    hotels team
+:vertical:cars:*                      cars team
+
+:shared:booking-flow-api              platform (contract only)
+:shared:payments-api / -impl          payments team
+:shared:loyalty-api / -impl           loyalty team
+:shared:identity-api / -impl          identity team
+
+:core:designsystem                    design-systems team, API-reviewed
+:core:network :core:database          platform team
+:core:navigation-api                  platform team
+:test:fixtures-*                      per owning team</pre></div>
+
+    <h4>The five rules that make it hold</h4>
+    <ol>
+      <li><strong>No vertical depends on another vertical.</strong> Packages (a flight + hotel bundle) is itself a vertical that depends on the shared <em>contracts</em>, not on the flights and hotels features.</li>
+      <li><strong>Shared capabilities are api/impl pairs.</strong> Verticals compile against <code>payments-api</code>; only <code>:app</code> sees <code>payments-impl</code>. A payments refactor then recompiles one module rather than twelve.</li>
+      <li><strong>One owner per module, encoded in CODEOWNERS.</strong> A module with no owner becomes everyone's dumping ground within two quarters.</li>
+      <li><strong>Boundaries enforced in build logic</strong>, failing the build on an illegal dependency — not in a wiki.</li>
+      <li><strong>The booking flow is a contract, not a shared implementation.</strong> Each vertical implements the steps; the shared module defines the state machine and the events. This is the decision that prevents a shared 40k-line "booking" module.</li>
+    </ol>
+
+    <h4>Migration sequence — no big bang</h4>
+    <ol>
+      <li><strong>Extract leaves first</strong>: design system, network, database. Zero behaviour change, immediately parallelisable, and it proves the tooling.</li>
+      <li><strong>Extract one vertical end to end</strong> — pick the team most willing, not the largest domain. Publish their build-time numbers.</li>
+      <li><strong>Add the enforcement</strong> once one vertical is clean, so new code cannot recreate the monolith while the rest migrates.</li>
+      <li><strong>Migrate the remainder team by team</strong>, each owning their own extraction with the platform team providing the template and codemods.</li>
+      <li><strong>Delete the monolith module</strong> — and treat its deletion as the completion criterion, because a half-migrated codebase carries both costs.</li>
+    </ol>
+
+    <h4>Success metrics, agreed before starting</h4>
+    <ul>
+      <li>Median incremental build after a one-line feature change: 25 min → under 3 min.</li>
+      <li>Percentage of PRs touching more than one team's modules: target under 10%.</li>
+      <li>Time to first commit for a new hire.</li>
+      <li>CI wall-clock for a feature-only change (should require only affected-module tests).</li>
+    </ul>
+
+    <h4>Follow-up questions to expect</h4>
+    <ol>
+      <li>"What if two verticals need the same UI component?" — It goes into the design system with an API review, or it is duplicated deliberately. Duplication between verticals is cheaper than a shared module owned by nobody; say this explicitly, because interviewers expect DRY reflexes and reward the nuance.</li>
+      <li>"How do you handle a shared entity like <code>User</code>?" — One identity domain module owning the canonical model; verticals map it into their own view if they need extra fields. Do not let verticals add fields to the shared model.</li>
+      <li>"What about dynamic feature modules?" — Only if install size is a demonstrated conversion problem. They add substantial complexity to DI, navigation and testing; the default answer is no, with data.</li>
+      <li>"How long?" — Give a real shape: leaves in a quarter, first vertical in a quarter, the rest over three to four quarters at roughly one vertical per team per quarter alongside feature work. A candidate who says "six weeks" has not done it.</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Part VIII rapid recall</h4>
+    <ul>
+      <li><code>implementation</code> by default; <code>api</code> only for types in your public signatures.</li>
+      <li>Cycles are broken with contracts assembled at <code>:app</code>, never with a <code>:core:shared</code> catch-all.</li>
+      <li>Shallow and wide parallelises; deep serialises. ABI changes, not body changes, drive recompilation.</li>
+      <li>kapt → KSP is usually the largest single build win available.</li>
+      <li>Convention plugins plus version catalogs; module correctness by construction.</li>
+      <li>One owner per module in CODEOWNERS; enforcement in build logic, not documentation.</li>
+      <li>Deliberate duplication between verticals beats an unowned shared module.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p7" data-p="p7"><span class="k">Previous</span><span class="t">← Part VII</span></a><a class="r" href="#p9" data-p="p9"><span class="k">Next</span><span class="t">Part IX — Networking →</span></a></div>
+</section>

@@ -1,0 +1,157 @@
+<section class="page" id="p14">
+  <header class="phead">
+    <p class="eyebrow">Part XIV</p>
+    <h1>Build Systems, CI/CD &amp; <em>Release</em></h1>
+    <p class="deck">Build and release treated as a product with its own users — your engineers — and its own metrics. This is the part of Staff work that is invisible until it is terrible.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 87</span>Gradle mechanics</h2>
+  <p>Gradle runs in phases, and knowing which phase your cost is in is most of the diagnosis:</p>
+  <ol>
+    <li><strong>Initialisation</strong> — settings, which projects exist.</li>
+    <li><strong>Configuration</strong> — every build script runs, every task is created. On a 300-module project this can be 30+ seconds <em>before any work</em>, and it happens on every invocation unless the configuration cache is on.</li>
+    <li><strong>Execution</strong> — tasks run, subject to up-to-date checks and the build cache.</li>
+  </ol>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — work at configuration time</div><pre>// Runs on EVERY build, including `./gradlew tasks`
+val gitSha = "git rev-parse HEAD".execute().text.trim()
+val buildTime = System.currentTimeMillis()
+
+android {
+    defaultConfig {
+        buildConfigField("String", "GIT_SHA", "\"$gitSha\"")
+        buildConfigField("long", "BUILD_TIME", "${buildTime}L")
+    }
+}</pre>
+      <p class="why">A process fork per module per build, and <code>buildTime</code> changes every invocation — so <code>BuildConfig</code> is never up to date and everything downstream recompiles. It also breaks the configuration cache.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — lazy providers, stable inputs</div><pre>val gitSha: Provider&lt;String&gt; = providers.exec {
+    commandLine("git", "rev-parse", "--short", "HEAD")
+}.standardOutput.asText.map { it.trim() }        // evaluated on demand, cached
+
+android {
+    defaultConfig {
+        buildConfigField("String", "GIT_SHA", "\"${gitSha.get()}\"")
+        // No timestamp: it would defeat every cache. If you need one,
+        // inject it at packaging time only for release builds.
+    }
+}</pre>
+      <p class="why">Provider APIs defer the work and participate in the configuration cache. Removing volatile inputs is what makes up-to-date checks and the build cache work at all.</p></div>
+  </div>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:180px">Feature</th><th>What it saves</th><th>Common blocker</th></tr></thead>
+    <tbody>
+      <tr><td>Configuration cache</td><td>The entire configuration phase on repeat builds</td><td>Scripts capturing <code>Project</code> at execution time; older plugins</td></tr>
+      <tr><td>Build cache (local)</td><td>Re-running tasks whose inputs are unchanged</td><td>Non-deterministic task inputs — timestamps, absolute paths</td></tr>
+      <tr><td>Remote build cache</td><td>CI results reused on developer machines</td><td>Environment differences making cache keys diverge</td></tr>
+      <tr><td>Parallel execution</td><td>Wall time across independent modules</td><td>A deep dependency chain, which serialises regardless</td></tr>
+      <tr><td>KSP over kapt</td><td>Often 20–40% of annotation-processing time</td><td>A library that only ships a kapt processor</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 88</span>Variants and build logic</h2>
+  <p>Variants multiply: 3 flavours × 2 build types = 6 variants, each with its own compile, resource-merge and lint task per module. Teams routinely create dimension combinations nobody builds, and pay for them in configuration time and IDE sync.</p>
+  <div class="code1"><div class="lab">Prune deliberately</div><pre>androidComponents {
+    beforeVariants { variant -&gt;
+        // Only `internal` needs the debuggable+staging combination.
+        variant.enable = !(variant.flavorName == "demo" &amp;&amp;
+                           variant.buildType == "release")
+    }
+}</pre></div>
+  <p>The Staff-level point: every variant is a build-time and test-matrix cost paid by every engineer on every sync. A dimension needs a named owner and a reason, or it should not exist.</p>
+
+  <h2><span class="cn">Chapter 89</span>Cutting build times across an organisation</h2>
+  <div class="q">
+    <p class="qt">Interview question · a very common Staff round</p>
+    <p class="qh">"Builds take 18 minutes. 120 engineers. What do you do?"</p>
+    <h4>Frame it in money first</h4>
+    <p>"120 engineers, maybe 8 builds a day each, 18 minutes — that is roughly 290 engineer-hours a day of waiting, though not all of it is idle. Even attributing a third of it as genuinely lost, that is on the order of 10–15 full-time engineers' worth of capacity. That framing is what funds the work, and it is the first thing I'd put in the proposal."</p>
+    <h4>Measure before changing anything</h4>
+    <p>"Build scans across the team — not my machine. I want the distribution, not the average: which task types dominate, what the cache hit rate is, how much is configuration versus execution, and crucially <em>which build</em> is the 18 minutes. A clean build being slow matters far less than an incremental one-line change being slow, because that is what engineers do fifty times a day."</p>
+    <h4>Sequence, cheapest first</h4>
+    <ol>
+      <li><strong>Configuration cache, build cache, parallel, adequate JVM heap.</strong> Days of work, often 30–50%.</li>
+      <li><strong>kapt → KSP</strong> wherever the library supports it. Frequently the single largest execution-phase win in a Dagger/Room codebase.</li>
+      <li><strong>Remote build cache</strong> seeded by CI, so a developer syncing main downloads results rather than compiling them.</li>
+      <li><strong>Fix the graph</strong>: <code>api</code>→<code>implementation</code>, break the chains that serialise, split the modules everything depends on. Weeks of work, high value, but only after measurement says the graph is the problem.</li>
+      <li><strong>Cut variants and unnecessary annotation processing.</strong></li>
+      <li><strong>Hardware</strong> — genuinely the cheapest intervention per minute saved, and frequently blocked by a procurement policy rather than by engineering.</li>
+    </ol>
+    <h4>Make it stick</h4>
+    <p>"Regression is the default. I'd publish a build-time dashboard (Gradle Enterprise or an equivalent), alert on p50 incremental build time, and add a CI check on configuration time. Otherwise the 18 minutes returns within three quarters, one dependency at a time — and the second time you propose the work, nobody believes it."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What if the remote cache has a low hit rate?" — Usually non-deterministic inputs: absolute paths, timestamps, environment variables leaking into task inputs. Gradle Enterprise's cache-miss analysis identifies the specific input that diverged.</li>
+      <li>"How do you avoid a six-month platform project nobody sees?" — Ship in increments with published numbers after each, and pick the first increment for visibility rather than magnitude.</li>
+      <li>"What's the metric you'd report to leadership?" — Median incremental build time and CI wall-clock per PR, converted to engineer-hours a week. Never "we enabled the configuration cache."</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 90</span>Pipelines and static analysis</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Stage</th><th style="min-width:130px">Budget</th><th>Contains</th></tr></thead>
+    <tbody>
+      <tr><td>Pre-commit (local)</td><td>seconds</td><td>Formatting only. Anything slower gets bypassed with <code>--no-verify</code>.</td></tr>
+      <tr><td>PR / pre-merge</td><td>under 10 min</td><td>Compile, lint/Detekt, unit tests for affected modules, size and API diff.</td></tr>
+      <tr><td>Post-merge</td><td>under 30 min</td><td>Full unit suite, instrumented smoke tests, benchmark checks.</td></tr>
+      <tr><td>Nightly</td><td>hours</td><td>E2E, screenshot suite, full device matrix, dependency and licence audit.</td></tr>
+      <tr><td>Release</td><td>—</td><td>Signed bundle, mapping upload, baseline profile, staged rollout.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>Static analysis as architecture enforcement</h4>
+  <p>The highest-value custom rules are the ones encoding decisions from other parts of this book — this is how an architectural agreement becomes real rather than aspirational:</p>
+  <div class="code1"><div class="lab">Rules worth writing</div><pre>ban  GlobalScope                        → Part III
+ban  Dispatchers.IO referenced directly → inject the dispatcher
+ban  feature-to-feature imports          → Part VIII boundary rule
+ban  android.* imports in :core:domain-* → keeps the domain pure
+warn Composable with &gt; 6 parameters      → hoisting smell
+ban  runBlocking outside tests/main()
+ban  PendingIntent without FLAG_IMMUTABLE→ Part IV / XV
+ban  Gson reflective adapters            → Part II null-safety hole</pre></div>
+  <p><strong>Signal-to-noise is the whole game.</strong> A ruleset with 400 warnings is a ruleset everyone ignores. Introduce rules at <em>error</em> severity with a baseline file for existing violations, so new code is clean and legacy debt is visible but non-blocking.</p>
+
+  <h2><span class="cn">Chapter 91</span>Release engineering</h2>
+  <p>The defining constraint of mobile release: <strong>you cannot recall a binary.</strong> A bad server deploy is reverted in minutes; a bad app release is on users' devices until they update, and some never will. Every release practice follows from this.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — ship and hope</div><pre>1. Merge everything ready on Friday
+2. Build, upload, 100% rollout
+3. Watch Crashlytics over the weekend
+4. If it's bad: hotfix, 2-day review anxiety, staged panic</pre>
+      <p class="why">No blast-radius control, no halt criteria, and the recovery path costs days. Any serious defect reaches the full user base before anyone is awake.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — train, staged, gated, killable</div><pre>1. Release train: branch cuts on a fixed schedule.
+   Missing the train is cheap; blocking it is expensive.
+2. Internal → closed → 1% → 5% → 20% → 50% → 100%,
+   with a soak at each step.
+3. Automated halt criteria evaluated per step:
+     crash-free sessions  &lt; baseline − 0.1%   → halt
+     ANR rate             &gt; baseline + 20%     → halt
+     p90 cold start       &gt; baseline + 15%     → halt
+     checkout conversion  &lt; baseline − 2%      → halt
+4. Every risky feature behind a remote flag, so
+   mitigation does not require a new binary.
+5. Hotfix path rehearsed: cherry-pick, expedited
+   review, targeted rollout. Practised, not improvised.</pre>
+      <p class="why">The kill switch is the most important line. It converts "we need an emergency release" into "we turned it off," which is minutes instead of days.</p></div>
+  </div>
+
+  <div class="note"><span class="lab">The rollback question</span><p>"How do you roll back a mobile release?" is a trick question, and the L4 answer starts by saying so. You cannot un-install a version from users' devices. Play's halt-rollout stops <em>further</em> distribution but does not touch existing installs; publishing the previous version under a higher version code is possible but disruptive and does not help users who already updated. The real answers are, in order: a server-side kill switch or remote config; a server-side compatibility fix; and only then a forward hotfix. Designing for this in advance — feature flags on anything risky, and server tolerance for old clients — is the actual competence being assessed.</p></div>
+
+  <div class="panel">
+    <h4>Part XIV rapid recall</h4>
+    <ul>
+      <li>Know which phase your cost is in; configuration work runs on every invocation.</li>
+      <li>Volatile inputs (timestamps, absolute paths) silently disable caching.</li>
+      <li>Enable configuration cache, build cache, parallel, KSP before restructuring anything.</li>
+      <li>Frame build time in engineer-hours; publish a dashboard or it regresses.</li>
+      <li>Tier pipelines by budget; pre-merge under 10 minutes or engineers route around it.</li>
+      <li>Encode architecture rules in lint at error severity with a baseline for legacy.</li>
+      <li>Release trains, staged rollout, automated halt criteria, feature flags on anything risky.</li>
+      <li>There is no rollback — only kill switches, server-side fixes, and forward hotfixes.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p13" data-p="p13"><span class="k">Previous</span><span class="t">← Part XIII</span></a><a class="r" href="#p15" data-p="p15"><span class="k">Next</span><span class="t">Part XV — Security →</span></a></div>
+</section>

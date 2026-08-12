@@ -1,0 +1,523 @@
+</main>
+<aside class="otp" id="otp" aria-label="On this page"></aside>
+</div>
+<script>
+(function () {
+  'use strict';
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var esc = function (s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  };
+
+  /* ---------------------------------------------------------------
+     1. Syntax highlighting — Android Studio token colours
+     Operates on textContent and re-escapes, so it can never
+     corrupt markup. Skips mermaid and plain-text blocks.
+  ----------------------------------------------------------------*/
+  /* Hard keywords, always coloured. Soft keywords that are commonly used as
+     ordinary identifiers (data, value, get, set, field, expect, actual) are
+     deliberately absent — Android Studio only colours those in modifier
+     position, which SOFT below handles. */
+  var KW = ['abstract','as','break','by','catch','class','companion',
+    'const','constructor','continue','crossinline','do','else','enum','external',
+    'false','final','finally','for','fun','if','import','in','infix','init','inline','inner',
+    'interface','internal','is','it','lateinit','noinline','null','object','open','operator','out',
+    'override','package','private','protected','public','reified','return','sealed','super',
+    'suspend','tailrec','this','throw','true','try','typealias','val','var','vararg',
+    'when','where','while'];
+  var SOFT = ['data','value','expect','actual','annotation'];
+  var AFTER_SOFT = ['class','object','interface','fun','val','var'];
+
+  var RX = {
+    kotlin: new RegExp(
+      '(/\\*[\\s\\S]*?\\*/|//[^\\n]*)'                                   /* 1 comment */
+      + '|("""[\\s\\S]*?"""|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\')' /* 2 string */
+      + '|(@[A-Za-z_]\\w*)'                                              /* 3 annotation */
+      + '|\\b(fun)(\\s+)([A-Za-z_]\\w*)'                                 /* 4,5,6 fun decl */
+      + '|\\b(' + SOFT.join('|') + ')(\\s+)(' + AFTER_SOFT.join('|') + ')\\b'  /* 7,8,9 soft modifier */
+      + '|\\b(' + KW.join('|') + ')\\b'                                  /* 10 keyword */
+      + '|\\b(\\d[\\d_]*(?:\\.\\d+)?[fFlLuU]?)\\b', 'g'),                /* 11 number */
+    xml: new RegExp(
+      '(<!--[\\s\\S]*?-->)'                                              /* 1 comment */
+      + '|("(?:[^"\\\\]|\\\\.)*")'                                       /* 2 string */
+      + '|(</?[A-Za-z_][\\w:.-]*|/?>)'                                   /* 3 tag */
+      + '|\\b([A-Za-z_][\\w:.-]*)(?=\\s*=)', 'g'),                       /* 4 attribute */
+    shell: new RegExp(
+      '(#[^\\n]*)'                                                       /* 1 comment */
+      + '|("(?:[^"\\\\]|\\\\.)*"|\'[^\']*\')'                            /* 2 string */
+      + '|(\\s--?[A-Za-z][\\w-]*)'                                       /* 3 flag */
+      + '|\\b(\\d+)\\b', 'g'),                                           /* 4 number */
+    json: new RegExp(
+      '(//[^\\n]*)'                                                      /* 1 comment */
+      + '|("(?:[^"\\\\]|\\\\.)*")'                                       /* 2 string */
+      + '|\\b(true|false|null)\\b'                                       /* 3 literal */
+      + '|(-?\\b\\d+(?:\\.\\d+)?\\b)', 'g')                              /* 4 number */
+  };
+
+  var MAP = {
+    kotlin: { 1: 'cmt', 2: 'str', 3: 'ann', 10: 'kw', 11: 'num' },
+    xml:    { 1: 'cmt', 2: 'str', 3: 'tag', 4: 'att' },
+    shell:  { 1: 'cmt', 2: 'str', 3: 'att', 4: 'num' },
+    json:   { 1: 'cmt', 2: 'str', 3: 'kw',  4: 'num' }
+  };
+
+  /* Conservative on purpose: the book contains many aligned plain-text
+     "recall cards" whose prose would light up wrongly if treated as code.
+     Those have no braces and no `//`, which is what separates them. */
+  function detect(t) {
+    if (/<\/[A-Za-z]|\/>/.test(t) && /<[A-Za-z][\w:.-]*[\s>]/.test(t)) return 'xml';
+    if (/^\s*(#|adb\b|\.\/gradlew|git\b|npm\b|curl\b|\$ )/.test(t)) return 'shell';
+    if (/"[\w-]+"\s*:/.test(t) && !/\bfun\s|\bval\s|\bclass\s/.test(t)) return 'json';
+    var brace = t.indexOf('{') > -1 && t.indexOf('}') > -1;
+    if (brace && (/\w\s*\(/.test(t) || t.indexOf('->') > -1)) return 'kotlin';
+    if (/^[ \t]*\/\//m.test(t)) return 'kotlin';
+    if (/\bfun\s/.test(t)
+      || /\b(val|var)\s+\w+\s*[:=]/.test(t)
+      || /\bclass\s+[A-Z]/.test(t)
+      || /@(Composable|Test|Entity|Query|Inject|Insert|Singleton|Immutable|Stable|JvmInline)\b/.test(t)) return 'kotlin';
+    return 'text';
+  }
+
+  function highlight(pre) {
+    if (pre.classList.contains('mermaid')) return;
+    var text = pre.textContent;
+    var lang = pre.dataset.lang || detect(text);
+    pre.dataset.lang = lang;
+    if (lang === 'text' || !RX[lang]) return;
+
+    var rx = RX[lang], map = MAP[lang], out = '', last = 0, m;
+    rx.lastIndex = 0;
+    while ((m = rx.exec(text)) !== null) {
+      if (m.index > last) out += esc(text.slice(last, m.index));
+      var handled = false;
+      if (lang === 'kotlin') {
+        /* `fun name` — keyword plus declaration name, unless what follows
+           `fun` is itself a keyword (e.g. `fun interface`). */
+        if (m[4]) {
+          var nameCls = KW.indexOf(m[6]) === -1 ? 'tok-fn' : 'tok-kw';
+          out += '<span class="tok-kw">' + esc(m[4]) + '</span>' + esc(m[5])
+               + '<span class="' + nameCls + '">' + esc(m[6]) + '</span>';
+          handled = true;
+        } else if (m[7]) {
+          /* soft modifier in modifier position: `data class`, `value class` */
+          out += '<span class="tok-kw">' + esc(m[7]) + '</span>' + esc(m[8])
+               + '<span class="tok-kw">' + esc(m[9]) + '</span>';
+          handled = true;
+        } else if (m[10] && text.charAt(m.index - 1) === '.') {
+          /* member access — `store.get(…)` is a call, not a keyword */
+          out += esc(m[10]);
+          handled = true;
+        }
+      }
+      if (!handled) {
+        for (var g in map) {
+          if (m[g] !== undefined) {
+            out += '<span class="tok-' + map[g] + '">' + esc(m[g]) + '</span>';
+            handled = true;
+            break;
+          }
+        }
+      }
+      if (!handled) out += esc(m[0]);
+      last = rx.lastIndex;
+      if (m[0] === '') rx.lastIndex++;          /* guard against zero-length loops */
+    }
+    out += esc(text.slice(last));
+    pre.innerHTML = out;
+  }
+
+  /* Highlight the page being shown first; fill in the rest while idle.
+     Tokenising all 183 blocks up front costs ~100ms on a mid-tier phone
+     for content the reader cannot see yet. */
+  function decoratePage(page) {
+    if (page.dataset.decorated) return;
+    page.dataset.decorated = '1';
+    $$('pre', page).forEach(highlight);
+    $$('.code1 > .lab, .cbox > .lab', page).forEach(addCopyButton);
+  }
+
+  var idle = window.requestIdleCallback || function (fn) { return setTimeout(fn, 200); };
+  function decorateRest() {
+    var pending = $$('.page').filter(function (p) { return !p.dataset.decorated; });
+    if (!pending.length) return;
+    idle(function () { decoratePage(pending[0]); decorateRest(); });
+  }
+
+  /* ---------------------------------------------------------------
+     2. Copy buttons on every code block
+  ----------------------------------------------------------------*/
+  function addCopyButton(lab) {
+    var pre = lab.parentNode.querySelector('pre');
+    if (!pre) return;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'copy';
+    b.textContent = 'Copy';
+    b.addEventListener('click', function () {
+      var done = function () {
+        b.textContent = 'Copied'; b.classList.add('done');
+        setTimeout(function () { b.textContent = 'Copy'; b.classList.remove('done'); }, 1400);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(pre.textContent).then(done, function () {});
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = pre.textContent;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(ta);
+      }
+    });
+    lab.appendChild(b);
+  }
+
+  /* ---------------------------------------------------------------
+     3. Anchors on chapters, sections and questions
+  ----------------------------------------------------------------*/
+  var slug = function (s) {
+    return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+  };
+  $$('.page').forEach(function (page) {
+    $$('h2', page).forEach(function (h) {
+      var cn = h.querySelector('.cn');
+      var m = cn && cn.textContent.match(/(\d+)/);
+      h.id = m ? ('ch-' + m[1]) : (page.id + '-' + slug(h.textContent));
+      var a = document.createElement('a');
+      a.className = 'anch'; a.href = '#' + h.id; a.textContent = '#';
+      a.setAttribute('aria-label', 'Link to this chapter');
+      h.appendChild(a);
+    });
+    $$('h3', page).forEach(function (h, i) { if (!h.id) h.id = page.id + '-s' + i; });
+    $$('.qh', page).forEach(function (h, i) { if (!h.id) h.id = page.id + '-q' + i; });
+  });
+
+  /* ---------------------------------------------------------------
+     4. Two-column tables stack on narrow screens
+  ----------------------------------------------------------------*/
+  $$('table').forEach(function (t) {
+    var row = t.querySelector('tbody tr');
+    if (row && row.children.length === 2) t.classList.add('t2');
+  });
+
+  /* ---------------------------------------------------------------
+     5. Level-chip tooltips and a legend where grading is dense
+  ----------------------------------------------------------------*/
+  var LEVELS = {
+    c1: 'L1 Weak — definitional recall',
+    c2: 'L2 Acceptable — correct but bounded',
+    c3: 'L3 Senior — practically grounded',
+    c4: 'L4 Staff — systemic: failure, scale, cost, inversion',
+    c5: 'L5 Principal — strategic: reversibility, org, migration'
+  };
+  $$('.chip').forEach(function (c) {
+    for (var k in LEVELS) if (c.classList.contains(k)) c.title = LEVELS[k];
+  });
+  $$('.page').forEach(function (page) {
+    if ($$('.chip', page).length < 3) return;
+    var head = page.querySelector('.phead');
+    if (!head) return;
+    var d = document.createElement('div');
+    d.className = 'legend';
+    d.innerHTML = '<span><b class="chip c1">L1</b> weak</span>'
+      + '<span><b class="chip c2">L2</b> acceptable</span>'
+      + '<span><b class="chip c3">L3</b> senior</span>'
+      + '<span><b class="chip c4">L4</b> staff</span>'
+      + '<span><b class="chip c5">L5</b> principal</span>';
+    head.parentNode.insertBefore(d, head.nextSibling);
+  });
+
+  /* ---------------------------------------------------------------
+     6. On-this-page navigation (sticky rail + inline fallback)
+  ----------------------------------------------------------------*/
+  var otpRail = $('#otp');
+
+  function buildOtp(page) {
+    var heads = $$('h2', page);
+    otpRail.innerHTML = '';
+    var inlinePrev = page.querySelector('details.otp-inline');
+    if (inlinePrev) inlinePrev.remove();
+    if (heads.length < 2) return;
+
+    var title = function (h) { return h.textContent.replace(/^Chapter \d+/, '').replace(/#$/, '').trim(); };
+
+    otpRail.innerHTML = '<h6>On this page</h6>';
+    heads.forEach(function (h) {
+      var cn = h.querySelector('.cn');
+      var a = document.createElement('a');
+      a.href = '#' + h.id;
+      a.innerHTML = (cn ? '<span class="cn">' + esc(cn.textContent) + '</span>' : '') + esc(title(h));
+      a.addEventListener('click', function (e) { e.preventDefault(); jumpTo(h); });
+      otpRail.appendChild(a);
+    });
+
+    var det = document.createElement('details');
+    det.className = 'otp-inline';
+    var box = '<summary>' + heads.length + ' chapters on this page</summary><div>';
+    heads.forEach(function (h) {
+      var cn = h.querySelector('.cn');
+      box += '<a href="#' + h.id + '">' + (cn ? esc(cn.textContent) + ' · ' : '') + esc(title(h)) + '</a>';
+    });
+    det.innerHTML = box + '</div>';
+    $$('a', det).forEach(function (a, i) {
+      a.addEventListener('click', function (e) { e.preventDefault(); det.open = false; jumpTo(heads[i]); });
+    });
+    var head = page.querySelector('.phead');
+    var legend = head && head.nextElementSibling && head.nextElementSibling.classList.contains('legend')
+      ? head.nextElementSibling : head;
+    if (legend) legend.parentNode.insertBefore(det, legend.nextSibling);
+  }
+
+  function jumpTo(el) {
+    var y = el.getBoundingClientRect().top + window.scrollY - 16;
+    window.scrollTo({ top: y, behavior: 'auto' });
+    if (history.replaceState) history.replaceState(null, '', '#' + el.id);
+  }
+
+  /* highlight the chapter currently in view */
+  var spy;
+  function startSpy(page) {
+    if (spy) spy.disconnect();
+    var links = $$('a', otpRail);
+    if (!links.length) return;
+    var heads = $$('h2', page);
+    spy = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (!en.isIntersecting) return;
+        var i = heads.indexOf(en.target);
+        links.forEach(function (l, j) { l.classList.toggle('here', i === j); });
+      });
+    }, { rootMargin: '0px 0px -75% 0px' });
+    heads.forEach(function (h) { spy.observe(h); });
+  }
+
+  /* ---------------------------------------------------------------
+     7. Progress: visited parts + last position
+  ----------------------------------------------------------------*/
+  var store = {
+    get: function (k, d) { try { return JSON.parse(localStorage.getItem(k)) || d; } catch (e) { return d; } },
+    set: function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+  var visited = store.get('sai-visited', []);
+  function markVisited(id) {
+    if (visited.indexOf(id) === -1) { visited.push(id); store.set('sai-visited', visited); }
+    store.set('sai-last', id);
+    paintVisited();
+  }
+  function paintVisited() {
+    $$('#nav a').forEach(function (a) {
+      a.classList.toggle('visited', visited.indexOf(a.getAttribute('data-p')) !== -1);
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     8. Router
+  ----------------------------------------------------------------*/
+  var pages = $$('.page');
+  var pageIds = pages.map(function (p) { return p.id; });
+
+  function pageOfAnchor(id) {
+    var el = document.getElementById(id);
+    var pg = el && el.closest('.page');
+    return pg ? { page: pg.id, el: el } : null;
+  }
+
+  function show(id, anchorEl) {
+    if (pageIds.indexOf(id) === -1) id = pageIds[0];
+    var page;
+    pages.forEach(function (p) {
+      var on = p.id === id;
+      p.classList.toggle('on', on);
+      if (on) page = p;
+    });
+    decoratePage(page);
+    $$('#nav a').forEach(function (a) { a.classList.toggle('on', a.getAttribute('data-p') === id); });
+    var cur = $('#nav a.on');
+    var sum = $('#mobsum');
+    if (sum) sum.textContent = cur ? cur.children[1].textContent : 'Contents';
+    buildOtp(page);
+    startSpy(page);
+    markVisited(id);
+    if (anchorEl) { requestAnimationFrame(function () { jumpTo(anchorEl); }); }
+    else window.scrollTo(0, 0);
+    if (window.innerWidth <= 960) { var mn = $('#mobnav'); if (mn) mn.open = false; }
+  }
+
+  function route(hash, pushHash) {
+    var h = (hash || '').replace(/^#/, '');
+    if (!h) { show(store.get('sai-last', pageIds[0])); return; }
+    if (pageIds.indexOf(h) !== -1) { show(h); return; }
+    var t = pageOfAnchor(h);
+    if (t) { show(t.page, t.el); return; }
+    show(pageIds[0]);
+  }
+
+  $$('[data-p]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      var id = a.getAttribute('data-p');
+      if (history.replaceState) history.replaceState(null, '', '#' + id); else location.hash = id;
+      show(id);
+    });
+  });
+  window.addEventListener('hashchange', function () { route(location.hash); });
+
+  /* ---------------------------------------------------------------
+     9. Search
+  ----------------------------------------------------------------*/
+  /* Built on first use, not at load — nobody searches before the first paint. */
+  var index = null;
+  function ensureIndex() {
+    if (index) return index;
+    index = [];
+    pages.forEach(function (page) {
+      var partName = (page.querySelector('.eyebrow') || {}).textContent || '';
+      var h1 = page.querySelector('h1');
+      if (h1) index.push({ id: h1.id || page.id, page: page.id, text: h1.textContent.trim(), ctx: partName || 'Front matter', kind: 'part' });
+      $$('h2', page).forEach(function (h) {
+        var cn = h.querySelector('.cn');
+        index.push({
+          id: h.id, page: page.id,
+          text: h.textContent.replace(/^Chapter \d+/, '').replace(/#$/, '').trim(),
+          ctx: (partName ? partName + ' · ' : '') + (cn ? cn.textContent : ''), kind: 'chapter'
+        });
+      });
+      $$('h3', page).forEach(function (h) {
+        index.push({ id: h.id, page: page.id, text: h.textContent.trim(), ctx: partName, kind: 'section' });
+      });
+      $$('.qh', page).forEach(function (h) {
+        index.push({ id: h.id, page: page.id, text: h.textContent.trim(), ctx: partName + ' · question', kind: 'q' });
+      });
+    });
+    return index;
+  }
+
+  var input = $('#q'), results = $('#results'), sel = -1, hits = [];
+
+  function search(term) {
+    term = term.trim().toLowerCase();
+    results.innerHTML = ''; hits = []; sel = -1;
+    if (term.length < 2) return;
+    var scored = [];
+    ensureIndex().forEach(function (e) {
+      var t = e.text.toLowerCase(), i = t.indexOf(term);
+      if (i === -1) return;
+      var s = i === 0 ? 0 : (/\W/.test(t.charAt(i - 1)) ? 1 : 2);
+      if (e.kind === 'chapter') s -= 0.5;
+      if (e.kind === 'part') s -= 0.7;
+      scored.push({ e: e, s: s, i: i });
+    });
+    scored.sort(function (a, b) { return a.s - b.s || a.i - b.i; });
+    hits = scored.slice(0, 25).map(function (x) { return x.e; });
+    if (!hits.length) { results.innerHTML = '<div class="none">No match</div>'; return; }
+    hits.forEach(function (e, n) {
+      var i = e.text.toLowerCase().indexOf(term);
+      var a = document.createElement('a');
+      a.href = '#' + e.id;
+      a.innerHTML = '<span class="rt">' + esc(e.text.slice(0, i)) + '<mark>'
+        + esc(e.text.slice(i, i + term.length)) + '</mark>' + esc(e.text.slice(i + term.length))
+        + '</span><span class="rc">' + esc(e.ctx) + '</span>';
+      a.addEventListener('click', function (ev) { ev.preventDefault(); open(n); });
+      results.appendChild(a);
+    });
+  }
+
+  function open(n) {
+    var e = hits[n]; if (!e) return;
+    results.innerHTML = ''; input.value = ''; input.blur();
+    var el = document.getElementById(e.id);
+    show(e.page, el && el.tagName !== 'H1' ? el : null);
+  }
+
+  function moveSel(d) {
+    var links = $$('a', results);
+    if (!links.length) return;
+    if (sel >= 0) links[sel].classList.remove('sel');
+    sel = (sel + d + links.length) % links.length;
+    links[sel].classList.add('sel');
+    links[sel].scrollIntoView({ block: 'nearest' });
+  }
+
+  if (input) {
+    input.addEventListener('input', function () { search(input.value); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveSel(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); moveSel(-1); }
+      else if (e.key === 'Enter') { e.preventDefault(); open(sel === -1 ? 0 : sel); }
+      else if (e.key === 'Escape') { input.value = ''; results.innerHTML = ''; input.blur(); }
+    });
+    document.addEventListener('keydown', function (e) {
+      var tag = (document.activeElement || {}).tagName;
+      if (e.key === '/' && tag !== 'INPUT' && tag !== 'TEXTAREA') { e.preventDefault(); input.focus(); }
+    });
+    document.addEventListener('click', function (e) {
+      if (!results.contains(e.target) && e.target !== input) results.innerHTML = '';
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     10. Rapid-fire self-test mode
+  ----------------------------------------------------------------*/
+  var rf = document.getElementById('p27');
+  if (rf) {
+    var bar = document.createElement('div');
+    bar.className = 'sttoggle';
+    bar.innerHTML = '<button type="button" aria-pressed="false">Self-test: off</button>'
+      + '<span>Hide the answers and reveal them one row at a time — the way the book tells you to practise.</span>';
+    var btn = bar.querySelector('button');
+    var head = rf.querySelector('.phead');
+    head.parentNode.insertBefore(bar, head.nextSibling);
+
+    var setMode = function (on) {
+      rf.classList.toggle('selftest', on);
+      btn.setAttribute('aria-pressed', String(on));
+      btn.textContent = 'Self-test: ' + (on ? 'on' : 'off');
+      if (!on) $$('tr.revealed', rf).forEach(function (r) { r.classList.remove('revealed'); });
+      store.set('sai-selftest', on);
+    };
+    btn.addEventListener('click', function () { setMode(!rf.classList.contains('selftest')); });
+    rf.addEventListener('click', function (e) {
+      if (!rf.classList.contains('selftest')) return;
+      var tr = e.target.closest && e.target.closest('tbody tr');
+      if (tr && rf.contains(tr)) tr.classList.toggle('revealed');
+    });
+    if (store.get('sai-selftest', false)) setMode(true);
+  }
+
+  /* ---------------------------------------------------------------
+     11. Theme toggle (auto → light → dark). "auto" defers to the
+     viewer's own toggle / OS preference and sets no attribute.
+  ----------------------------------------------------------------*/
+  var tbtn = $('#themebtn');
+  if (tbtn) {
+    var modes = ['auto', 'light', 'dark'];
+    var cur = store.get('sai-theme', 'auto');
+    if (modes.indexOf(cur) === -1) cur = 'auto';
+    var apply = function (m) {
+      if (m === 'auto') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', m);
+      tbtn.textContent = m.charAt(0).toUpperCase() + m.slice(1);
+      tbtn.title = 'Theme: ' + m + ' — click to change';
+      store.set('sai-theme', m);
+    };
+    apply(cur);
+    tbtn.addEventListener('click', function () {
+      cur = modes[(modes.indexOf(cur) + 1) % modes.length];
+      apply(cur);
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     12. Mobile nav open state
+  ----------------------------------------------------------------*/
+  var mob = $('#mobnav');
+  var syncNav = function () { if (mob) mob.open = window.innerWidth > 960; };
+  syncNav();
+  window.addEventListener('resize', syncNav);
+
+  paintVisited();
+  route(location.hash);
+  decorateRest();
+})();
+</script>

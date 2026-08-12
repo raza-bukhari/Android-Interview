@@ -1,0 +1,351 @@
+<section class="page" id="p16">
+  <header class="phead">
+    <p class="eyebrow">Part XVI</p>
+    <h1>Mobile <em>System Design</em></h1>
+    <p class="deck">The round that most often decides a Staff offer. One repeatable framework, an explanation of how it is scored, and eighteen complete designs — each ending in the follow-ups the interviewer will actually ask.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 97</span>A repeatable framework</h2>
+  <p>Forty-five minutes, six phases. The timings are deliberate: candidates lose the round by spending twenty minutes on requirements or by drawing boxes in minute two.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:78px">Time</th><th style="min-width:150px">Phase</th><th>What you produce</th></tr></thead>
+    <tbody>
+      <tr><td>0–5 min</td><td>Requirements</td><td>3–5 functional requirements, agreed and written down. Explicitly out of scope: everything else.</td></tr>
+      <tr><td>5–10 min</td><td>Non-functionals &amp; scale</td><td>Users, request rates, payload sizes, offline expectations, latency targets, device mix, and the one constraint that dominates.</td></tr>
+      <tr><td>10–15 min</td><td>API &amp; data model</td><td>The client/server contract and the on-device schema. This is the highest-signal artefact in a mobile design.</td></tr>
+      <tr><td>15–30 min</td><td>Client architecture</td><td>Layers, state flow, caching, sync, background work, and the component diagram.</td></tr>
+      <tr><td>30–40 min</td><td>Failure &amp; edge cases</td><td>Offline, partial failure, conflict, process death, auth expiry, degraded modes.</td></tr>
+      <tr><td>40–45 min</td><td>Trade-offs &amp; observability</td><td>What you would do differently at 10×, what you deliberately did not build, and how you would know it is broken.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>The scale estimation nobody does — and it is free marks</h4>
+  <div class="code1"><div class="lab">Worked example: a chat client</div><pre>10M DAU · 40 messages sent per active user per day
+  → 400M messages/day ≈ 4,600 msg/s average, ~15k/s peak
+
+Per device: 20 conversations × 500 messages retained
+  → 10k rows × ~400 bytes ≈ 4 MB text + media separately
+  → comfortably fits SQLite; media needs its own quota
+
+Socket: 10M DAU, ~15% concurrent → 1.5M live connections
+  → that is a backend cost, and it justifies asking whether
+    we need a socket at all or whether push + fetch suffices
+    for the 85% who are not actively chatting.</pre></div>
+  <p>The point is not arithmetic accuracy. It is that the numbers <em>drive a design decision</em> — here, "socket only while a conversation is open, push otherwise," which is a real architectural conclusion reached from an estimate rather than from taste.</p>
+
+  <h2><span class="cn">Chapter 98</span>How mobile design interviews are scored</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:170px">Signal</th><th>Senior <span class="chip c3">L3</span></th><th>Staff <span class="chip c4">L4</span></th></tr></thead>
+    <tbody>
+      <tr><td>Requirements</td><td>Asks a few clarifying questions</td><td>Names the dominant constraint and designs to it; states what is out of scope</td></tr>
+      <tr><td>Client focus</td><td>Draws a backend architecture with an app attached</td><td>Keeps the design on the device: state, storage, sync, lifecycle, battery</td></tr>
+      <tr><td>Offline</td><td>"We'd cache it"</td><td>Source of truth, staleness policy, write queue, conflict resolution</td></tr>
+      <tr><td>Failure</td><td>Handles errors when asked</td><td>Enumerates failure modes unprompted and designs degraded behaviour</td></tr>
+      <tr><td>Data model</td><td>Vague entities</td><td>Concrete schema with keys, indexes and a sync cursor</td></tr>
+      <tr><td>Trade-offs</td><td>Lists options</td><td>Chooses, justifies, and names the inversion condition</td></tr>
+      <tr><td>Observability</td><td>Not mentioned</td><td>Names the metric that would reveal each failure mode</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><span class="lab">The most common way strong candidates fail</span><p>They design the backend. A mobile system design interview is about the <em>client</em>: what is stored on device, how state flows, what happens offline, how it behaves under process death and poor connectivity, and what it costs in battery and bytes. Spend two minutes on the server contract and twenty on the device.</p></div>
+
+  <h2><span class="cn">Chapter 99</span>API design and the mobile/backend contract</h2>
+  <p>The asymmetry that defines this contract: <strong>the server can deploy hourly; installed clients cannot be updated.</strong> Every compatibility obligation therefore falls on the server, and a Staff engineer is expected to negotiate that explicitly.</p>
+  <ul>
+    <li><strong>Additive-only changes.</strong> New optional fields are safe; removing or retyping a field breaks old clients permanently. The client should ignore unknown fields and tolerate unknown enum values by mapping them to an explicit <code>Unknown</code>.</li>
+    <li><strong>Cursor pagination, not offsets.</strong> Offsets duplicate and skip items when the underlying list changes — guaranteed on any live feed.</li>
+    <li><strong>Screen-shaped endpoints reduce round trips</strong> but couple the server to UI. The honest trade: aggregate where the screen is stable and latency-critical, keep resources granular where the UI churns.</li>
+    <li><strong>Errors need a machine-readable code</strong>, not just a message. Clients must branch on <code>code</code>; a localised string is for display only.</li>
+    <li><strong>Every mutation takes an idempotency key.</strong> Establish this once, globally, rather than per endpoint.</li>
+    <li><strong>Minimum supported version</strong> must be an explicit, agreed policy with a forced-upgrade mechanism — otherwise "old clients" is an unbounded liability.</li>
+  </ul>
+
+  <div class="code1"><div class="lab">A contract shape that survives client churn</div><pre>GET /v1/feed?cursor=eyJ0cyI6MTcwfQ&amp;limit=20
+200 {
+  "items": [ { "id": "...", "type": "post", "payload": { ... } } ],
+  "next_cursor": "eyJ0cyI6MTY5fQ",     // null ⇒ end
+  "server_time": "2026-08-12T10:00:00Z" // clock-skew correction
+}
+
+POST /v1/orders
+Idempotency-Key: 8f14e45f-ea5c-4f2b-9d6b-7c1a2b3c4d5e
+409 {
+  "code": "INVENTORY_UNAVAILABLE",      // client branches on this
+  "message": "That size just sold out", // display only, localised
+  "retryable": false,
+  "details": { "sku": "A-42" }
+}</pre></div>
+
+  <h2><span class="cn">Chapter 100</span>Design: ride-hailing with live tracking</h2>
+  <p><strong>Requirements:</strong> request a ride, see the driver approach in real time, trip state through pickup and drop-off, fare and receipt. <strong>Dominant constraint:</strong> the app must be correct and cheap in battery while running for 20+ minutes with the screen sometimes off and connectivity varying.</p>
+  <p><strong>Scale:</strong> driver position at 1 Hz; a 20-minute trip is ~1,200 updates. At 1M concurrent trips that is 1M msg/s to the backend — so the rider's client should <em>not</em> receive 1 Hz; 2–4 second interpolated updates are indistinguishable to the user and cut socket traffic by 75%.</p>
+
+  <pre class="mermaid">
+flowchart TD
+  UI["Trip screen (Compose)"] --> VM["TripViewModel — trip state machine"]
+  VM --> TR["TripRepository (source of truth)"]
+  TR --> WS["Socket client — driver position, trip events"]
+  TR --> API["REST — request, cancel, receipt"]
+  TR --> DB[("Room: trip, positions ring buffer")]
+  FGS["Foreground service (driver app)"] --> LOC["FusedLocation, batched"]
+  LOC --> UP["Upload batcher — 5s batches, compressed"]
+  PUSH["FCM"] -. "wake on trip event" .-> TR
+  </pre>
+
+  <p><strong>Client architecture.</strong> The trip is an explicit state machine — <code>Requesting → Matched → DriverEnRoute → Arrived → InProgress → Completed</code> — persisted in Room, because it must survive process death mid-trip. The socket delivers position and state transitions; FCM is the fallback that wakes the app when the socket is dead. Position updates feed an interpolator so the marker animates smoothly between sparse updates rather than teleporting.</p>
+  <p><strong>Failure modes and behaviour:</strong> socket drops → exponential reconnect with a resume token, and the UI shows last-known position with a staleness indicator rather than a frozen lie; connectivity lost entirely → trip state persists, UI degrades to "reconnecting", and on resume the client fetches trip state by ID rather than replaying missed events; app killed mid-trip → state restored from Room and reconciled with a single authoritative fetch; driver's app backgrounded → foreground service with a location type keeps uploads alive, batched to protect battery.</p>
+  <p><strong>Trade-offs to state:</strong> socket vs polling (socket for the active trip only, because 1.5M idle sockets is a real cost); server-side vs client-side ETA (server, so all parties agree); precision vs battery on the driver side (batch uploads at 5 s, accept a small staleness).</p>
+  <div class="q">
+    <p class="qt">Follow-ups</p>
+    <p class="qh">Expect these three</p>
+    <ol>
+      <li>"The rider's phone dies mid-trip." — Nothing about the trip's correctness depends on the rider's client; the server is authoritative. On restart the client fetches trip state by ID. The receipt arrives by push and email regardless.</li>
+      <li>"How do you stop the marker jumping when GPS is noisy?" — Snap positions to the road network server-side, and interpolate client-side along the returned polyline rather than between raw points. Raw GPS on a phone in a car is noisy enough to look broken.</li>
+      <li>"Battery for the driver app over an 8-hour shift?" — Batched uploads, no per-update wakeup, adaptive interval by speed, and a hard budget measured in a dogfood programme. This is a product-defining metric for driver retention, not a technical detail.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 101</span>Design: food delivery</h2>
+  <p><strong>Dominant constraint:</strong> three actors (customer, restaurant, courier) observing one order whose state changes from outside the app. Correctness of <em>state</em> matters more than latency.</p>
+  <p><strong>Design:</strong> the order is a server-authoritative state machine; the client never infers a transition locally. Push carries the transition; the client fetches the order to confirm rather than trusting the payload, so a lost or reordered push cannot corrupt state. Menu and pricing are cached with a short TTL and <em>revalidated at cart-open and at checkout</em> — the failure to design for is a price change between browsing and paying, which is a trust and support-cost issue.</p>
+  <p><strong>Cart consistency:</strong> local-first with server reconciliation. The cart is a local draft; validation (item availability, price, minimum order) happens server-side at checkout and returns a structured diff the UI explains, rather than a generic failure.</p>
+  <p><strong>Follow-ups:</strong> "Restaurant goes offline with an order in flight" — the order state machine has an explicit <code>RestaurantUnresponsive</code> state with a timeout and an auto-refund path; do not leave it in <code>Preparing</code> forever. "Courier tracking when the app is backgrounded?" — push-driven state, socket only while the tracking screen is visible.</p>
+
+  <h2><span class="cn">Chapter 102</span>Design: chat and messaging</h2>
+  <p><strong>Dominant constraints:</strong> message ordering, exactly-once display, offline send, and multi-device convergence.</p>
+  <div class="code1"><div class="lab">On-device schema — the part interviewers most want to see</div><pre>messages(
+  local_id      TEXT PRIMARY KEY,   -- client UUID, created at send time
+  server_id     TEXT UNIQUE,        -- null until acked
+  conversation  TEXT NOT NULL,
+  sender        TEXT NOT NULL,
+  body          TEXT,
+  created_at    INTEGER NOT NULL,   -- client clock, for local ordering
+  server_seq    INTEGER,            -- authoritative order within conversation
+  state         TEXT NOT NULL,      -- pending | sent | delivered | read | failed
+  INDEX(conversation, server_seq),
+  INDEX(state)                      -- the outbox query
+)
+conversations(id, last_seq_synced, unread_count, updated_at)</pre></div>
+  <p><strong>Ordering:</strong> never order by timestamp — device clocks are wrong, sometimes by hours. Order by the server-assigned monotonic <code>server_seq</code> per conversation, and display pending messages optimistically at the tail until they are acked and re-sorted. <strong>Deduplication:</strong> the client-generated <code>local_id</code> is echoed by the server, so a message that arrives both as an ack and as a socket broadcast collapses to one row.</p>
+  <p><strong>Sync:</strong> per-conversation cursor (<code>last_seq_synced</code>); on reconnect, fetch the gap rather than replaying everything. If the gap exceeds a threshold, fall back to a bounded resync rather than paging through months of history.</p>
+  <p><strong>Offline send:</strong> the message is written locally as <code>pending</code> and enqueued; the UI shows it immediately with a clock icon. WorkManager drains the queue. A permanently-failed message must reach a <code>failed</code> state with a retry affordance — silently retrying forever is the worse bug.</p>
+  <div class="q">
+    <p class="qt">Follow-ups</p>
+    <p class="qh">The three that always come</p>
+    <ol>
+      <li>"Same account on two devices — how do read receipts converge?" — Read state is a per-conversation high-water mark (<code>last_read_seq</code>), not per message. Max wins, which is conflict-free and idempotent.</li>
+      <li>"How do you show unread counts without a full sync?" — The server sends the count in the conversation list payload and in push data. Deriving it locally requires full history, which you do not have on a fresh install.</li>
+      <li>"End-to-end encryption?" — Changes the design materially: the server can no longer order by content or generate previews, key exchange and multi-device key distribution become the hard problem, and search must be local-only. Say this explicitly rather than adding "and it's encrypted."</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 103</span>Design: an Instagram-style feed</h2>
+  <p><strong>Dominant constraint:</strong> scroll performance with heavy media, and cursor stability on a list that changes underneath you.</p>
+  <p><strong>Pagination:</strong> cursor-based, with the cursor encoding a snapshot boundary so newly-inserted posts do not cause duplicates mid-scroll; new content surfaces as a "new posts" pill rather than being spliced in, which also avoids scroll-position jumps. <strong>Storage:</strong> Paging 3 with a RemoteMediator into Room, so the feed is available offline and survives process death with scroll position intact.</p>
+  <p><strong>Media pipeline:</strong> server returns multiple renditions; the client requests the one matching its display size — never the original. Prefetch two screens ahead on unmetered connections only. Memory cache sized from <code>memoryClass</code>, disk cache with a hard quota.</p>
+  <p><strong>Optimistic interactions:</strong> a like writes locally, updates the UI immediately, and enqueues the mutation with an idempotency key. On failure it reverts with a quiet indicator. Never block the UI on a like round-trip.</p>
+  <p><strong>Follow-ups:</strong> "Ranking changes between pages, and the user sees a duplicate" — the snapshot cursor is the answer; if the backend cannot provide one, dedupe client-side by ID and log the rate, because a high rate means the backend contract is wrong. "Memory during fast scroll?" — bounded caches, decode to display size, and verify with a Macrobenchmark scroll journey, not by inspection.</p>
+
+  <h2><span class="cn">Chapter 104</span>Design: video streaming</h2>
+  <p><strong>Constraints:</strong> start-up latency, rebuffer ratio, and data cost. Those three are the product.</p>
+  <p><strong>Design:</strong> adaptive bitrate over HLS/DASH with ExoPlayer/Media3; start at a conservative rendition for fast first-frame and step up once the buffer is healthy. Buffer policy differs by network: larger buffer on unmetered, smaller on cellular to avoid wasting data the user never watches. Prefetch only the first few seconds of likely-next items, and only on Wi-Fi.</p>
+  <p><strong>Downloads:</strong> WorkManager with an unmetered constraint, DRM licence acquisition and renewal handled separately from the media (a downloaded file with an expired licence is a common support case), and playback-position sync so resume works across devices.</p>
+  <p><strong>Observability is the differentiator here:</strong> the metrics that matter are join time, rebuffer ratio, average bitrate delivered, and playback failure rate, segmented by network type and device tier. Say those unprompted.</p>
+  <p><strong>Follow-ups:</strong> "Network drops mid-playback" — keep the buffered content playing, retry segment fetches with backoff, and only surface an error when the buffer is exhausted. "How do you avoid wasting the user's data?" — quality caps on cellular by default, an explicit user setting, and never prefetching on metered connections.</p>
+
+  <h2><span class="cn">Chapter 105</span>Design: a subscription streaming app (multi-surface)</h2>
+  <p><strong>Requirements:</strong> browse a catalogue, play on phone/tablet/TV, download for offline, multiple profiles per account, resume position synced across devices. <strong>Dominant constraint:</strong> the same account is used on several surfaces with different input models and wildly different network conditions, and entitlement must be correct without making the app unusable during a brief outage.</p>
+
+  <p><strong>Entitlement.</strong> Checked server-side at playback start — a client-side subscription boolean is trivially bypassed and is the first thing an attacker patches. But a hard server dependency means a backend blip stops all playback, so the client caches a signed entitlement token with a bounded grace period (typically hours, not days) and degrades to cached rights if the check fails. Downloads carry their own offline licence with an explicit expiry, which is why "I downloaded it but it won't play" is almost always a licence-renewal bug rather than a media bug — worth naming, because interviewers who work on streaming have all seen it.</p>
+
+  <p><strong>Profiles</strong> are a schema decision, not a UI one. Continue-watching, recommendations, maturity rating and download ownership are all per profile, so every relevant table is keyed by <code>profile_id</code> and every query filters on the active profile. The bug class to design out: switching profiles without clearing in-memory caches, so the previous profile's continue-watching row briefly appears — embarrassing, and on a kids' profile it is a policy violation rather than a cosmetic bug. The safe pattern is to treat a profile switch as a scoped teardown, closer to a logout than to a filter change.</p>
+
+  <div class="code1"><div class="lab">Profile-scoped local schema</div><pre>profiles(id, account_id, name, is_kids, maturity_rating)
+watch_state(profile_id, title_id, position_ms, updated_at_server_seq,
+            PRIMARY KEY(profile_id, title_id))
+downloads(profile_id, title_id, file_path, licence_expires_at, bytes,
+          PRIMARY KEY(profile_id, title_id))
+catalogue(title_id, ...)        -- shared, not profile-scoped</pre></div>
+
+  <p><strong>Resume position across devices</strong> is a convergence problem with a forgiving conflict policy: highest <code>position_ms</code> per (profile, title) does not work — a user who rewatches from the start would have their position dragged forward. Use a server sequence number, last-write-wins by server order, and write positions at a throttled cadence (every 15–30 seconds and on pause/stop) rather than continuously, or you generate one write per second per viewer.</p>
+
+  <p><strong>Surface divergence.</strong> TV is not a layout variation — D-pad focus navigation is a different input model, with focus order, focus memory when returning to a row, and no touch affordances. Wear and Auto differ again. The design that works: share domain, data, entitlement and playback-state logic; write presentation and navigation separately per surface; and test focus traversal on TV as a first-class requirement. Saying "it's responsive" here is a Senior answer and interviewers who own a TV app will say so.</p>
+
+  <div class="q">
+    <p class="qt">Follow-ups</p>
+    <p class="qh">Expect these</p>
+    <ol>
+      <li>"The user's subscription lapses while they are offline with downloads." — Offline licences expire independently; playback stops at expiry and the UI explains why. Do not silently delete the files; the user may resubscribe.</li>
+      <li>"Four devices playing simultaneously on a two-stream plan." — Concurrency enforcement is server-side at stream start, with a clear client-side message naming which device to stop. The client cannot arbitrate this.</li>
+      <li>"How do you keep the catalogue fresh without re-downloading it?" — Versioned catalogue with delta updates and ETags; the catalogue is reference data (evictable, TTL) while watch state is user data (never evicted).</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 106</span>Design: maps and navigation</h2>
+  <p><strong>Dominant constraint:</strong> battery and thermal, during long foreground use with the screen on and GPS active.</p>
+  <p><strong>Design:</strong> vector tiles cached on disk with an LRU quota and explicit offline-region downloads; the route is computed server-side and returned as a polyline plus manoeuvres, so recalculation is a server call — but the client must handle the offline case by continuing along the last route and queueing the recalculation. Location at the coarsest accuracy the current mode allows, with sensor fusion for dead-reckoning in tunnels.</p>
+  <p><strong>Foreground service</strong> with a location type, a persistent notification, and adaptive update intervals by speed. <strong>Thermal:</strong> listen to thermal status and degrade — reduce frame rate, drop map effects, lengthen GPS interval — before the OS throttles you, because uncontrolled throttling looks like a crash-quality bug to users.</p>
+
+  <h2><span class="cn">Chapter 107</span>Design: e-commerce</h2>
+  <p><strong>Key tensions:</strong> catalogue staleness versus freshness, cart consistency across devices, and checkout correctness.</p>
+  <ul>
+    <li><strong>Catalogue:</strong> aggressively cached, revalidated with ETags. Stale product copy is acceptable; stale <em>price or availability</em> is not — so price and stock are fetched fresh on the product page and re-validated at checkout.</li>
+    <li><strong>Cart:</strong> server-owned when signed in (so it follows the user across devices), local draft when anonymous, with a defined merge rule at sign-in. That merge rule is a question interviewers love: union with quantity max, and surface the change rather than silently overwriting.</li>
+    <li><strong>Checkout:</strong> a resumable, idempotent, server-driven step machine. The client asks "what is the next step" rather than encoding the flow, because payment and compliance steps vary by market and change without an app release.</li>
+    <li><strong>Search:</strong> server-side, debounced, with cancellation of superseded queries (<code>flatMapLatest</code>), and a local recent-searches cache for instant perceived response.</li>
+  </ul>
+
+  <h2><span class="cn">Chapter 108</span>Design: travel booking (flights)</h2>
+  <p><strong>Distinguishing features:</strong> search is slow (multi-supplier aggregation, seconds not milliseconds), results expire, and inventory is <em>held</em> rather than owned.</p>
+  <p><strong>Design:</strong> async search — POST creates a search, the client polls or subscribes and renders results progressively as suppliers respond, so the user sees something in 500 ms rather than nothing for 6 seconds. Results carry an explicit expiry; the UI shows a countdown and re-prices on selection rather than failing at payment. The booking flow is a resumable server-side state machine with a held-inventory timer, because a user who backgrounds the app mid-booking must be able to return.</p>
+  <p><strong>Follow-ups:</strong> "The price changed between selection and payment" — a mandatory re-price step before payment, with an explicit confirmation UI. Never silently charge a different amount; it is both a trust and a regulatory problem. "Process death mid-booking?" — the booking ID and step are persisted; on relaunch the client resumes from the server's authoritative step.</p>
+
+  <h2><span class="cn">Chapter 109</span>Design: hotel booking</h2>
+  <p><strong>Requirements:</strong> search by destination and dates, filter and sort, view on a map, book, manage the reservation. <strong>Dominant constraints:</strong> availability is volatile and supplier-owned, and the result set must be presented two ways at once without the views disagreeing.</p>
+
+  <p><strong>Map/list duality</strong> is the design's core. The failure everyone hits: list and map maintained as separate states, so panning the map filters one and not the other, and a property tapped on the map is missing from the list. One source of truth for the result set, two projections driven from it, and a single explicit rule for what a map pan does — either it re-queries by viewport (and the list follows) or it does not filter at all. Ambiguity here is the bug.</p>
+
+  <div class="code1"><div class="lab">One state, two projections</div><pre>@Immutable
+data class SearchUiState(
+    val query: SearchQuery,                    // destination, dates, guests
+    val results: ImmutableList&lt;Property&gt;,      // THE source of truth
+    val viewport: MapViewport?,                // null until the map moves
+    val selectedId: PropertyId?,               // shared selection
+    val mode: Mode,                            // List | Map | Split (tablet)
+)
+// List renders `results`; the map renders the same `results` as pins.
+// Selection is one field, so tapping a pin highlights the list row.</pre></div>
+
+  <p><strong>Filtering</strong> is split deliberately: filters that affect correctness or price (dates, guests, refundability) are server-side, because the client cannot know availability. Filters that merely narrow already-loaded results (star rating, amenities present in the payload) are applied locally for instant feedback, with a clear indication when the local subset is incomplete. Mixing these silently is how users end up believing a property is unavailable when it was simply not in the loaded page.</p>
+
+  <p><strong>Inventory and price</strong> behave as in Chapter 108: results carry an expiry, selection triggers a re-price, and booking holds inventory on a timer. The client shows the countdown rather than failing at payment.</p>
+
+  <p><strong>Offline requirements are asymmetric and worth stating.</strong> Search is useless offline — do not fake it. But a <em>confirmed booking</em> must be fully available with no network: confirmation number, property address and phone, check-in time, cancellation policy, and a map snapshot if you can afford one. The user will open this in an airport, in another country, with no data and a nearly-flat battery. Designing the reservation record as a self-contained offline document, rather than as a view over cached API responses, is the difference between an app that works when it matters and one that shows a spinner.</p>
+
+  <div class="q">
+    <p class="qt">Follow-ups</p>
+    <p class="qh">Expect these</p>
+    <ol>
+      <li>"The user changes dates while viewing a property." — Invalidate price and availability immediately and show it as unknown while re-querying. Never carry the old price forward against new dates.</li>
+      <li>"Thousands of pins on the map." — Server-side clustering by viewport and zoom; the client renders clusters, not properties. Client-side clustering of a large set is a main-thread cost.</li>
+      <li>"The user cancels while offline." — Queue it as a pending operation with an idempotency key, but be honest in the UI: it is <em>requested</em>, not cancelled, until confirmed — because cancellation windows have financial consequences.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 110</span>Design: a news reader</h2>
+  <p><strong>Requirements:</strong> browse sections, read articles, offline reading, breaking-news alerts, read state synced across devices. <strong>Dominant constraints:</strong> prefetch economics (you are spending the user's storage and data speculatively) and content licensing, which for some publishers forbids caching at all.</p>
+
+  <p><strong>Prefetch is a budget decision, not a feature.</strong> Scheduled work on unmetered connections with a hard storage quota, prioritised by the sections the user actually opens. Articles stored with a TTL and an explicit "available offline" indicator, so the offline experience is honest rather than a surprise. The metric that justifies the whole subsystem is the prefetch <em>hit rate</em> — the fraction of prefetched articles actually read. If it is low, you are burning storage and data for nothing, and that is an argument you can take to a product review with numbers rather than opinion.</p>
+
+  <p><strong>Read state</strong> is a small, high-churn dataset: a set of article IDs with timestamps. Sync it as a delta with last-write-wins per article, and say explicitly why that policy is acceptable here — the cost of a wrong resolution is that an article shows as unread. Contrast this with the notes app in Chapter 115, where the same policy would destroy user writing. Being able to justify a <em>cheap</em> conflict policy is as much a signal as designing an expensive one.</p>
+
+  <p><strong>Breaking news</strong> uses high-priority push, which is a finite reputational resource: abuse it for engagement and the platform degrades your delivery for the messages that matter. Practically that means a governance rule — high priority for genuine time-critical alerts, normal priority for editorial pushes — and a metric tracking the ratio.</p>
+
+  <p><strong>Licensing</strong> is the constraint outsiders miss. Some content is display-only with no caching permitted, some has a retention limit, some must be removed on takedown. The data model therefore needs a per-article caching policy field, and takedown must purge local copies — which means the sync protocol needs tombstones for content removal, not just for user deletions.</p>
+
+  <h2><span class="cn">Chapter 111</span>Design: a social network</h2>
+  <p>The feed itself is Chapter 103. What makes a social client distinct are four client-side problems that are each a common production bug.</p>
+
+  <p><strong>Notification coherence.</strong> A notification must not persist after the user has seen the content elsewhere. That requires server-side dismissal: the server tracks notification state and pushes a dismissal to other devices, because a client cannot know what happened on a different phone. Without it, users clear the same notification on three devices — a small annoyance that generates a surprising volume of complaints.</p>
+
+  <p><strong>Account switching</strong> is where the serious bugs live. Local storage must be fully partitioned per account — separate database files or a mandatory account column enforced at the DAO level — plus separate image caches, separate outboxes, and separate in-memory state. The catastrophic version of this bug is a queued post from account A being sent from account B after a switch. The safe design treats a switch as a full teardown and rebuild of the object graph, not as a variable change.</p>
+
+  <div class="code1"><div class="lab">The rule that prevents cross-account leakage</div><pre>// Every user-scoped dependency is created in an account-scoped
+// component that is destroyed on switch or logout.
+@AccountScope
+class AccountComponent(val accountId: AccountId) {
+    val db: AppDatabase          // separate file per account
+    val outbox: SyncQueue        // never shared
+    val imageCache: DiskCache    // separate directory
+}
+
+fun switchAccount(to: AccountId) {
+    current.outbox.pause()       // do NOT drain into the new account
+    current.close()              // tear down everything user-scoped
+    current = AccountComponent(to)
+}</pre></div>
+
+  <p><strong>Privacy state must be enforced server-side.</strong> Client-side filtering of blocked users leaks the existence of the content — it is visible in the payload, in a proxy, and to anyone who patches the client. Blocking, private accounts and restricted visibility are authorisation decisions, and authorisation on the client is not authorisation.</p>
+
+  <p><strong>Moderation surfaces</strong> impose an unusual requirement: removed content must disappear from local caches too. That means content removal is a synced event with a tombstone, image caches are purgeable by content ID, and there is a path for an urgent global purge. Most offline-first designs only consider user-initiated deletion; a moderation takedown is a deletion the user did not perform and cannot decline, and the sync protocol has to accommodate it.</p>
+
+  <h2><span class="cn">Chapter 112</span>Design: a banking application</h2>
+  <p><strong>Dominant constraint:</strong> never display a number that is wrong. Correctness dominates latency, which inverts most of the caching intuition from consumer apps.</p>
+  <ul>
+    <li><strong>Balance:</strong> shown with an explicit "as of" timestamp when served from cache, and refreshed on foreground. A stale balance presented as current is a complaint and potentially a regulatory issue.</li>
+    <li><strong>Session:</strong> short, with step-up authentication for transfers and payee changes. Biometrics gate a Keystore key (Part XV), not a boolean.</li>
+    <li><strong>Local storage:</strong> encrypted; transaction history cached for offline viewing but pending transfers never stored as "complete" until server-confirmed.</li>
+    <li><strong>Screenshot and background:</strong> <code>FLAG_SECURE</code> on sensitive screens, and a privacy overlay in the recents preview.</li>
+    <li><strong>Audit:</strong> security-relevant client events (device change, biometric enrolment change, failed auth) reported server-side, because the client's own log is not trustworthy evidence.</li>
+  </ul>
+
+  <h2><span class="cn">Chapter 113</span>Design: payments</h2>
+  <p>This is Chapter 63's idempotency problem as a full design. <strong>The core state machine:</strong> <code>Draft → Committed(key persisted) → Submitted → Unknown | Succeeded | Failed</code>, where <code>Unknown</code> is a first-class state rather than an error.</p>
+  <div class="code1"><div class="lab">The rule that prevents double charges</div><pre>// 1. Key is created when the USER commits, persisted BEFORE the call.
+val op = PendingPayment(
+    id = UUID.randomUUID().toString(),   // == Idempotency-Key
+    amount = amount, payeeId = payee.id,
+    state = Committed,
+)
+db.pending().insert(op)                  // survives process death
+
+// 2. Every attempt — including after a restart — reuses op.id.
+// 3. No response ⇒ state = Unknown, NOT Failed. Reconcile by polling
+//    status with the same key, or wait for push confirmation.
+// 4. UI never shows "failed" for an Unknown; it shows "processing".</pre></div>
+  <p><strong>3DS and app switching</strong> add a re-entry problem: the user leaves to a bank app or a browser and returns, possibly after process death. The payment state must be recoverable from the persisted key alone, and the return deep link must be validated. <strong>Follow-ups:</strong> "What if the server's key retention is shorter than your offline queue's lifetime?" — a correctness gap; either bound the queue's lifetime to match, or require reconciliation by order status rather than by key. Spotting that mismatch is a strong L4/L5 signal.</p>
+
+  <h2><span class="cn">Chapter 114</span>Design: real-time fleet tracking</h2>
+  <p>The inverse of ride-hailing: the client is a <em>producer</em> of high-frequency data. <strong>Design:</strong> batch positions into 5–30 second windows depending on speed and battery; compress (delta-encode coordinates, which typically shrinks payloads by an order of magnitude); persist the batch locally before upload so nothing is lost to a crash; and apply client-side backpressure — when the queue exceeds a threshold, downsample rather than growing unboundedly, keeping every N-th point plus all points where direction changed sharply.</p>
+  <p>That downsampling policy is the whole answer to "the driver was in a dead zone for two hours": you cannot upload everything, so decide <em>in advance</em> what fidelity you sacrifice.</p>
+
+  <h2><span class="cn">Chapter 115</span>Design: an offline-first notes app</h2>
+  <p><strong>The canonical local-first design.</strong> Local database is the source of truth; the UI never waits on the network. Every mutation writes locally and appends to an outbox. Sync is a delta protocol with a server cursor.</p>
+  <div class="code1"><div class="lab">Sync loop with conflict handling</div><pre>suspend fun sync() {
+    // 1. Push: drain the outbox in order, idempotently.
+    outbox.pending().forEach { op -&gt;
+        when (val r = api.apply(op.toRequest(), key = op.id)) {
+            is Applied  -&gt; outbox.markDone(op.id)
+            is Conflict -&gt; resolve(op, r.serverVersion)   // see below
+            is Retryable-&gt; return                        // stop; try later
+            is Permanent-&gt; outbox.markFailed(op.id, r.reason)  // surface to user
+        }
+    }
+    // 2. Pull: delta since the cursor, applied in one transaction.
+    var cursor = meta.cursor()
+    do {
+        val page = api.changes(since = cursor, limit = 200)
+        db.withTransaction {
+            page.changes.forEach { applyRemote(it) }
+            meta.setCursor(page.nextCursor)
+        }
+        cursor = page.nextCursor
+    } while (page.hasMore)
+}</pre></div>
+  <p><strong>Conflict policy for notes:</strong> per-note last-write-wins loses text, which users notice immediately. The defensible options are three-way merge on the text (base, local, remote), or — the pragmatic one — keep both as a conflict copy and tell the user. Silently discarding a user's writing is the one outcome that is never acceptable, and saying that explicitly matters more than the algorithm you choose.</p>
+
+  <h2><span class="cn">Chapter 116</span>Design: collaborative documents</h2>
+  <p><strong>OT vs CRDT:</strong> OT needs a central server to transform and order operations, which is simpler on the client but useless offline. CRDTs converge without coordination — the right choice for a mobile client that is regularly offline — at the cost of metadata growth and a much harder debugging story.</p>
+  <p><strong>Mobile-specific realities to raise:</strong> CRDT metadata for a long-lived document can exceed the document itself, so you need compaction or a snapshot-plus-tail model; presence and cursors go over a socket and are ephemeral (never persisted); and a large document cannot be held fully in memory on a low-end device, so you need windowed loading, which interacts badly with naive CRDT implementations. Being able to name that interaction is what distinguishes an L5 answer from a recital of "CRDTs converge."</p>
+
+  <h2><span class="cn">Chapter 117</span>Design: large-scale search</h2>
+  <p><strong>Latency budget:</strong> typeahead feels instant under ~100 ms, acceptable to ~300 ms. Since a network round trip alone is often 200 ms, the design must hide latency: show local recent and popular searches instantly, render results progressively, and never clear the current results while the next query is in flight (the flicker that makes search feel broken).</p>
+  <p><strong>Pipeline:</strong> debounce 250–300 ms → distinct → minimum length → <code>flatMapLatest</code> to cancel superseded requests → results. <strong>Local index</strong> (SQLite FTS) for user-owned content, which works offline and is genuinely instant; remote for the corpus.</p>
+  <p><strong>Instrumentation:</strong> the metrics that matter are time-to-first-result, abandonment rate, zero-result rate, and result-click position. Zero-result rate is the one that drives product change, and it is usually not instrumented.</p>
+
+  <div class="panel">
+    <h4>Part XVI rapid recall</h4>
+    <ul>
+      <li>Five minutes on requirements, ten on non-functionals and scale, twenty on the <em>client</em>, ten on failure and trade-offs.</li>
+      <li>Do an estimate and let it drive a decision — that is the point of it.</li>
+      <li>Server-authoritative state, client-confirmed: push carries the signal, the client fetches the truth.</li>
+      <li>Cursor pagination with a snapshot boundary; never offsets on a live list.</li>
+      <li>Order by server sequence, not device clocks.</li>
+      <li>Idempotency key created at user commit, persisted before the call, reused across process death.</li>
+      <li><code>Unknown</code> is a first-class outcome for any mutation, not an error state.</li>
+      <li>Name the metric that would reveal each failure mode — unprompted.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p15" data-p="p15"><span class="k">Previous</span><span class="t">← Part XV</span></a><a class="r" href="#p17" data-p="p17"><span class="k">Next</span><span class="t">Part XVII — Sync &amp; Distributed →</span></a></div>
+</section>

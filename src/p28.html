@@ -1,0 +1,162 @@
+<section class="page" id="p28">
+  <header class="phead">
+    <p class="eyebrow">Part XXVIII</p>
+    <h1>Mock Interview <em>Loops</em></h1>
+    <p class="deck">Complete loops with interviewer scripts, expected reasoning, follow-ups and filled-in scorecards. Run them timed, with a peer as interviewer. Reading them is worth a fraction of performing them.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 168</span>How to run these</h2>
+  <ul>
+    <li><strong>Timed and out loud.</strong> 45 or 60 minutes per round, no pausing to look things up.</li>
+    <li><strong>Peer as interviewer.</strong> Give them the script; they do not need to know the material to run it, because the follow-ups and the scorecard are provided.</li>
+    <li><strong>Score immediately</strong> against the rubric, before discussing. Discussing first contaminates the score.</li>
+    <li><strong>One loop per week</strong>, not one per day. The value is in fixing what the scorecard exposed between attempts.</li>
+  </ul>
+  <div class="code1"><div class="lab">Universal scorecard — use for every round</div><pre>Dimension                       1  2  3  4  5   Evidence
+Problem framing / constraints   ○  ○  ○  ○  ○   ______________
+Technical depth (mechanism)     ○  ○  ○  ○  ○   ______________
+Trade-off reasoning             ○  ○  ○  ○  ○   ______________
+Failure &amp; scale thinking        ○  ○  ○  ○  ○   ______________
+Communication &amp; structure       ○  ○  ○  ○  ○   ______________
+Collaboration (uses hints well) ○  ○  ○  ○  ○   ______________
+
+3 = Senior · 4 = Staff · 5 = Principal
+Hire decision at Staff requires 4s in framing, trade-offs and failure thinking.
+A single 2 in communication frequently sinks an otherwise strong loop.</pre></div>
+
+  <h2><span class="cn">Chapter 169</span>Loop 1 — Senior → Staff at a product company</h2>
+  <p><strong>Shape:</strong> Kotlin/coroutines · Android platform · architecture · mobile system design · behavioural. This is the calibration loop: the scorecard at the end shows exactly where the Staff line falls.</p>
+
+  <div class="q">
+    <p class="qt">Round 1 · 45 min · Kotlin and concurrency</p>
+    <p class="qh">Interviewer script</p>
+    <ol>
+      <li><em>Warm-up (5 min):</em> "Walk me through what happens when three concurrent <code>async</code> calls run inside a <code>coroutineScope</code> and one fails."</li>
+      <li><em>Core (25 min):</em> "Implement a request deduplicator: five screens ask for the same user simultaneously, we want one network call." Let them design the API first. <strong>Probe:</strong> what scope does the work run in? What if the first caller navigates away? What if the request fails?</li>
+      <li><em>Extension (10 min):</em> "Now add a 30-second result cache." <strong>Probe:</strong> where does the clock come from, and how do you test expiry?</li>
+      <li><em>Close (5 min):</em> "What would you change about your solution before shipping it?"</li>
+    </ol>
+    <h4>What separates the levels here</h4>
+    <div class="levels">
+      <div class="lv"><b><span class="chip c3">L3</span></b><div>Working solution with a mutex and a map. Handles the failure case. Answers the scope question when asked.</div></div>
+      <div class="lv"><b><span class="chip c4">L4</span></b><div>Raises the scope-ownership question <em>unprompted</em> — "if I run this in the first caller's scope, their navigation cancels everyone's request" — injects the clock for testability, removes the entry in a <code>finally</code>, and names the leak risk of the map growing.</div></div>
+      <div class="lv"><b><span class="chip c5">L5</span></b><div>Adds that this belongs in shared infrastructure rather than in one repository, and that the same pattern covers token refresh — generalising without over-generalising.</div></div>
+    </div>
+  </div>
+
+  <div class="q">
+    <p class="qt">Round 2 · 45 min · Android platform</p>
+    <p class="qh">Interviewer script</p>
+    <ol>
+      <li>"A user reports that their form data disappears sometimes. Walk me through how you'd investigate." (Target: distinguishing configuration change from process death, and knowing how to reproduce each.)</li>
+      <li>"What actually survives process death?" Then: "How would you test that in CI?"</li>
+      <li>"We need to upload a photo the user just took. It must complete even if they leave the app. Design it." (Target: WorkManager, unique work, foreground service for the visible case, idempotency, failure surfacing.)</li>
+      <li>"The upload works but battery complaints doubled. What are your hypotheses?"</li>
+    </ol>
+    <p><strong>Red flags:</strong> confusing "don't keep activities" with process death; proposing a bare coroutine for durable work; no mention of what the user sees when the upload permanently fails.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Round 3 · 45 min · Architecture</p>
+    <p class="qh">Interviewer script</p>
+    <ol>
+      <li>Present the "everything in the ViewModel" architecture (Part XXII, Architecture 1) as a real codebase. "Critique this."</li>
+      <li>"You have one quarter and the team is shipping features throughout. Sequence the fix."</li>
+      <li>"Should repositories expose Flow or suspend functions?" — the criterion question.</li>
+      <li>"Your proposal adds files and a new rule. What is the cost, and who pays it?"</li>
+    </ol>
+    <p><strong>The Staff signal in this round</strong> is question 4: candidates who cannot name a downside of their own proposal are scored as advocating a style rather than making a decision.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Round 4 · 60 min · Mobile system design</p>
+    <p class="qh">"Design the client for a food delivery app: browse, order, track the courier."</p>
+    <p><strong>Interviewer's checklist</strong> — tick what the candidate raises <em>unprompted</em>:</p>
+    <div class="tw"><table><tbody>
+      <tr><td style="width:52%">Requirements pinned before designing</td><td>□ Functional □ Non-functional □ Out of scope</td></tr>
+      <tr><td>Scale estimate that drives a decision</td><td>□ Update frequency □ Socket vs push conclusion</td></tr>
+      <tr><td>Order as a server-authoritative state machine</td><td>□ Client never infers transitions</td></tr>
+      <tr><td>Push carries the signal, client fetches truth</td><td>□ Idempotent handling of duplicate push</td></tr>
+      <tr><td>Price/availability revalidation at checkout</td><td>□ Structured diff shown to the user</td></tr>
+      <tr><td>Offline and degraded behaviour</td><td>□ Cart local-first □ Tracking staleness indicator</td></tr>
+      <tr><td>Battery for courier tracking</td><td>□ Batching □ Foreground service type</td></tr>
+      <tr><td>Failure modes named unprompted</td><td>□ Restaurant unresponsive □ Payment unknown outcome</td></tr>
+      <tr><td>Observability</td><td>□ Names a metric per failure mode</td></tr>
+    </tbody></table></div>
+    <p><strong>Follow-ups to deploy at 40 minutes:</strong> "The courier's phone loses signal for ten minutes — what does the customer see?" · "Two devices, same account, one places an order — what happens on the other?" · "How would you roll this out safely?"</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Round 5 · 45 min · Behavioural</p>
+    <p class="qh">Interviewer script</p>
+    <ol>
+      <li>"Tell me about a technical decision you made that turned out to be wrong."</li>
+      <li>"Tell me about influencing a team you had no authority over." <em>Probe for the mechanism: prototype, data, or absorbed cost.</em></li>
+      <li>"Describe a time you disagreed with a decision and had to commit to it anyway."</li>
+      <li>"What's the most significant thing you've owned that nobody asked you to?"</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Loop 1 — worked scorecard for a borderline candidate</h4>
+    <div class="tw"><table>
+      <thead><tr><th style="min-width:110px">Round</th><th style="min-width:60px">Score</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><td>Kotlin/concurrency</td><td>4</td><td>Raised scope ownership unprompted; injected the clock; missed the map-growth leak until prompted.</td></tr>
+        <tr><td>Platform</td><td>4</td><td>Correct on process death and reproduction; strong on WorkManager; did not consider what the user sees on permanent failure.</td></tr>
+        <tr><td>Architecture</td><td>3</td><td>Good critique, sensible sequencing — but could not name a cost of their own proposal. Advocated rather than decided.</td></tr>
+        <tr><td>System design</td><td>3</td><td>Solid client architecture; spent 12 minutes on the backend; offline behaviour only when prompted; no observability.</td></tr>
+        <tr><td>Behavioural</td><td>4</td><td>Genuine failure story with a systemic fix. Influence story lacked a mechanism — "I explained why."</td></tr>
+      </tbody>
+    </table></div>
+    <p><strong>Committee outcome: Senior, not Staff.</strong> The technical depth is there. What is missing is visible in two places — an inability to critique their own proposal, and a design round that drifted to the backend and needed prompting for failure and observability. Both are learnable in weeks, and both are exactly what Parts XVI and XXII drill.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 170</span>Loop 2 — Staff at a large technology company</h2>
+  <p><strong>Shape:</strong> advanced Android internals · concurrency debugging · mobile system design · architecture leadership · behavioural. Harder in <em>breadth of probing</em> rather than in question difficulty — expect three levels of follow-up on everything.</p>
+  <ol>
+    <li><strong>Internals (45 min).</strong> Looper and Choreographer mechanism; why a 40 ms block drops three frames; Binder and <code>TransactionTooLargeException</code>; then "walk me through everything that happens between tapping the icon and the first frame."</li>
+    <li><strong>Concurrency debugging (45 min).</strong> Presented with the <code>UploadManager</code> snippet from Part XXI, Review 4: "This works in testing and duplicates uploads in production. Why?" Then: "Fix it." Then: "Now make it survive process death."</li>
+    <li><strong>System design (60 min).</strong> "Design a chat client." Follow-ups at 30 minutes: ordering with wrong device clocks; multi-device read state; offline send with permanent failure; what changes with end-to-end encryption.</li>
+    <li><strong>Architecture leadership (45 min).</strong> "You join and find four teams with four networking layers. Walk me through your first 90 days." Probes: how do you know it is worth fixing; who pays; what if a team refuses; how do you know it worked.</li>
+    <li><strong>Behavioural (45 min).</strong> Failure, conflict, saying no, and "what would your most difficult colleague say about working with you?"</li>
+  </ol>
+  <p><strong>Scoring note:</strong> at this level, a correct answer that arrives only after two hints scores as a 3. The bar is not "can reach the answer" but "reaches it independently and knows why it is the answer."</p>
+
+  <h2><span class="cn">Chapter 171</span>Loop 3 — Principal / Mobile Architect</h2>
+  <p>Deliberately brutal. Every round has contradictory constraints and no clean answer; the assessment is entirely about how you reason under them.</p>
+  <ol>
+    <li><strong>Strategy (60 min).</strong> "5M DAU, 500 engineers, the architecture is unchangeable, and leadership wants a redesign shipped in two quarters. What do you do?" The trap: accepting both constraints. Expected: reframe, measure, one visible win, invariants, honest timeline (Part XXIV).</li>
+    <li><strong>Design under contradiction (60 min).</strong> "Design multi-device sync for a note app. It must be end-to-end encrypted, support full-text search, work offline for a month, and never lose data." These constraints conflict — E2E prevents server-side search, month-long offline maximises conflicts. The assessment is whether you surface the conflict and negotiate scope rather than pretending to satisfy all four.</li>
+    <li><strong>Organisational design (45 min).</strong> "Design the mobile engineering org for a company scaling from 40 to 200 engineers. Team boundaries, platform team charter, governance model, and what breaks first."</li>
+    <li><strong>Executive communication (30 min).</strong> "Explain to a CFO why we need two quarters of engineering investment with no new features." Assessed on: money and risk framing, no jargon, a concrete decision requested at the end.</li>
+    <li><strong>Reverse round (30 min).</strong> "What questions do you have for us?" At Principal level this is scored — the questions reveal what you think matters. Strong: how decisions actually get made here, what the last failed technical initiative was and why, who owns mobile architecture today.</li>
+  </ol>
+
+  <h2><span class="cn">Chapter 172</span>Loops 4–12 — specialised variants</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:170px">Loop</th><th style="min-width:230px">Round structure</th><th>What it uniquely tests</th></tr></thead>
+    <tbody>
+      <tr><td>4 · Fintech</td><td>Payments idempotency design · threat modelling · Kotlin concurrency · incident leadership · behavioural</td><td>Correctness over latency; the unknown-outcome state; regulatory framing; whether you would ever show "failed" when you mean "unknown".</td></tr>
+      <tr><td>5 · Real-time / location</td><td>Streaming concurrency · battery and background policy · live-tracking design · on-call behaviour</td><td>Battery as a product metric; foreground service policy; degraded behaviour under signal loss.</td></tr>
+      <tr><td>6 · Media / performance</td><td>Rendering internals · memory and bitmaps · video design · performance-programme leadership</td><td>Whether you profile or guess; frame-timeline reading; running performance as a programme with budgets.</td></tr>
+      <tr><td>7 · Platform / infrastructure</td><td>Gradle internals · modularization exercise · DX as a product · migration leadership</td><td>Build-time economics in engineer-hours; whether you treat engineers as users; enforcement over documentation.</td></tr>
+      <tr><td>8 · Startup Staff</td><td>Breadth screen · pragmatic design under constraint · "what would you not build" · founder conversation</td><td>Speed/quality judgment; comfort being the only Staff engineer; willingness to choose the boring option.</td></tr>
+      <tr><td>9 · Offline-first product</td><td>Sync engine design · conflict resolution · data-integrity incident · testing strategy for sync</td><td>Per-type conflict policy; transactional cursors; whether you can test partial failure deterministically.</td></tr>
+      <tr><td>10 · Compose-heavy consumer app</td><td>Compose internals · state-management design · recomposition debugging · architecture review</td><td>Runtime understanding versus API familiarity; the "low recomposition but slow" diagnosis.</td></tr>
+      <tr><td>11 · Legacy modernisation</td><td>Codebase assessment · migration sequencing · stakeholder management · metrics</td><td>Whether you propose a rewrite; incremental value; how you would know it is working.</td></tr>
+      <tr><td>12 · KMP / cross-platform org</td><td>KMP evaluation · shared-domain architecture · team topology · a design spanning both platforms</td><td>Whether you treat it as a technical or an organisational decision; whether you keep an exit path.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>After every mock — the only three questions that matter</h4>
+    <ol>
+      <li><strong>What did I need a hint for?</strong> That is the gap, and it is specific enough to fix.</li>
+      <li><strong>Where did I explain instead of answering?</strong> Over-long answers are the most common and most fixable communication failure.</li>
+      <li><strong>Which lens did I never apply?</strong> Most candidates consistently forget the same two of the thirteen — usually observability and organisational impact. Find yours and make them a habit.</li>
+    </ol>
+  </div>
+
+  <div class="pagenav"><a href="#p27" data-p="p27"><span class="k">Previous</span><span class="t">← Part XXVII</span></a><a class="r" href="#p29" data-p="p29"><span class="k">Next</span><span class="t">Part XXIX — Follow-Up Trees →</span></a></div>
+</section>

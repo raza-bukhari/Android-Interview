@@ -1,0 +1,173 @@
+<section class="page" id="p1">
+  <header class="phead">
+    <p class="eyebrow">Part I</p>
+    <h1>The Staff <em>Engineer Mindset</em></h1>
+    <p class="deck">Before any technical content: what the level actually is, and why strong Senior answers get down-levelled. Everything after this part is read through it.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 1</span>What a Staff Android Engineer actually does</h2>
+  <p>Job descriptions describe Staff work as "technical leadership across teams," which is true and useless. The four archetypes below (following Will Larson's taxonomy, adapted for mobile organisations) are more actionable, because <strong>each one produces a different interview loop</strong> and a different set of stories you need ready.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Archetype</th><th style="min-width:210px">What the job is</th><th>What the loop emphasises</th></tr></thead>
+    <tbody>
+      <tr><td>Tech Lead</td><td>Owns delivery of a large mobile programme with 2–4 teams. Roadmap, sequencing, unblockers.</td><td>Project decomposition, estimation under uncertainty, stakeholder management, conflict between teams.</td></tr>
+      <tr><td>Architect</td><td>Owns the shape of the app: module graph, state model, platform APIs, the paved road.</td><td>Architecture review, modularization, migration strategy, governance without bottlenecks.</td></tr>
+      <tr><td>Solver</td><td>Dropped onto the highest-risk problem: a startup regression, a sync engine that loses data, an ANR crisis.</td><td>Debugging depth, performance investigation, incident narrative, comfort with incomplete information.</td></tr>
+      <tr><td>Right Hand</td><td>Extends a director's reach: strategy, org-wide standards, cross-org negotiation.</td><td>Written communication, prioritisation across competing orgs, executive framing, saying no.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>Two consequences for interview preparation. First, <strong>find out which archetype the role is</strong> before the loop — ask the recruiter what the last two quarters of this role looked like. An Architect loop will punish you for having only delivery stories; a Tech Lead loop will punish you for having only refactoring stories. Second, your story portfolio needs coverage of at least three archetypes, because most Staff roles drift between them.</p>
+
+  <div class="panel">
+    <h4>Where the time actually goes</h4>
+    <p>A realistic week for a Staff Android engineer at a mid-size company: 25–35% hands-on code (usually the risky or exemplary parts, not feature volume), 20% design review and code review, 20% written artefacts — proposals, ADRs, incident reports, 15% unblocking other engineers, 10% cross-team and product negotiation. If your answer to "what do you do day to day" is 80% coding, interviewers hear Senior.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 2</span>Senior vs Staff vs Principal vs Architect</h2>
+  <p>The single most common reason a strong candidate is down-levelled: <strong>they answered every question about the code, and the interviewer was asking about the system.</strong> The ladder is not "harder questions" — it is a change in the unit of work.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:110px">Unit of work</th><th>Senior</th><th>Staff</th><th>Principal</th></tr></thead>
+    <tbody>
+      <tr><td>Delivers</td><td>Features and components</td><td>Systems and standards</td><td>Strategy and capability</td></tr>
+      <tr><td>Time horizon</td><td>Sprint to quarter</td><td>Quarter to year</td><td>One to three years</td></tr>
+      <tr><td>Optimises</td><td>Their own correctness and throughput</td><td>The team's or domain's throughput</td><td>The organisation's optionality</td></tr>
+      <tr><td>Failure they prevent</td><td>A bug</td><td>A class of bug</td><td>An architecture that cannot change</td></tr>
+      <tr><td>Artefact</td><td>A pull request</td><td>A design doc others implement</td><td>A strategy others plan against</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>The four down-levelling triggers</h4>
+  <ol>
+    <li><strong>Solution-first answering.</strong> Jumping to "I'd use MVI with a sealed state class" before establishing constraints. Staff candidates spend the first 3–5 minutes of a design question on requirements and non-functionals, and interviewers explicitly score this.</li>
+    <li><strong>No inversion condition.</strong> Recommending an approach without ever saying what would make you choose differently. This reads as dogma, and dogma at Staff level is dangerous because juniors copy it.</li>
+    <li><strong>"We" with no "I".</strong> Behavioural answers that never isolate the candidate's own decision, or conversely claim solo credit for team outcomes. Both are calibration failures.</li>
+    <li><strong>No cost awareness.</strong> Proposing a migration without engineer-months, a cache without memory budget, or an abstraction without the onboarding cost it imposes on 40 engineers.</li>
+  </ol>
+
+  <div class="q">
+    <p class="qt">Interview question · opener in almost every Staff loop</p>
+    <p class="qh">"What's the difference between a Senior and a Staff engineer, in your view?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>It is a self-calibration probe. Your answer tells them what you think you are being hired for, and they will spend the rest of the loop testing whether your examples match your own definition. Candidates who define Staff as "more technical depth" then get asked increasingly deep API questions — and get down-levelled when the depth is not accompanied by scope.</p>
+    <h4>Short answer</h4>
+    <p>Senior is measured by the quality of what they build; Staff is measured by the quality of what the organisation builds because of them — through architecture, standards, unblocking, and the problems they choose.</p>
+    <h4>Common mistakes</h4>
+    <ul>
+      <li>Framing it as seniority or tenure ("Staff is a Senior who's been here longer").</li>
+      <li>Framing it as management ("Staff attends more meetings") — this signals you see the level as a tax rather than leverage.</li>
+      <li>Framing it purely as depth, which is the Senior definition of Staff.</li>
+    </ul>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"Give me an example where you operated at that level but the outcome was bad."</li>
+      <li>"How do you know your architectural influence actually helped, rather than just being adopted because you're senior?"</li>
+      <li>"What's something you used to believe strongly about Android architecture that you changed your mind on?"</li>
+      <li>"When did you deliberately choose not to intervene in a bad technical decision?"</li>
+      <li>"How much of your last year was hands-on code? Was that the right amount?"</li>
+    </ol>
+    <h4>Staff-level answer <span class="chip c4">L4</span></h4>
+    <p>"The unit changes. As a Senior I owned components and was judged on whether they were correct, tested and on time. As Staff I own seams — the places where two teams' decisions collide and neither owns the outcome. Concretely: last year our checkout and account teams both cached user entitlement, with different TTLs, which produced a class of bug where a user who upgraded saw the old tier for up to an hour. No single team owned it. I wrote the entitlement-ownership proposal, built the shared source of truth, and got both teams to migrate over a quarter. The measurable outcome was that tier-mismatch support tickets went to near zero and both teams deleted code. What makes that Staff rather than Senior isn't the caching design — a Senior could do that — it's that nobody asked me to, and the hard part was the two-team agreement, not the cache."</p>
+    <h4>Principal perspective <span class="chip c5">L5</span></h4>
+    <p>Adds the systemic layer: "…and the reason that bug existed is that we had no owner for cross-cutting domain concepts, so I also proposed the domain-ownership registry so the next entitlement-shaped problem has an owner on day one. That's the difference between fixing an instance and removing a class."</p>
+    <h4>What the interviewer records</h4>
+    <p>Scope evidence (multi-team), agency (self-initiated), measurable outcome, and — critically — whether the candidate can distinguish their own contribution from the team's.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 3</span>Scope, ownership, and the seams between teams</h2>
+  <p>Staff work concentrates in three places, all of them uncomfortable:</p>
+  <ul>
+    <li><strong>Unowned surfaces.</strong> App startup, the DI graph, navigation, the design system, crash triage rotation, the release process. Everyone depends on them; no team's OKRs include them. A Staff engineer either owns one or ensures someone does.</li>
+    <li><strong>Contested boundaries.</strong> Two teams that disagree about where a responsibility lives. The technical answer is usually easy; the hard part is that one team must absorb work they did not plan.</li>
+    <li><strong>Decisions with no deadline.</strong> The migration everyone agrees is needed and nobody starts. Staff engineers convert these into sequenced, funded work with a first increment small enough to survive a sprint.</li>
+  </ul>
+
+  <div class="note"><span class="lab">Interview technique</span><p>When asked "tell me about a project you owned," pick one where <strong>you created the ownership</strong>. A project handed to you demonstrates competence; a project you defined demonstrates level.</p></div>
+
+  <h2><span class="cn">Chapter 4</span>Decision-making under ambiguity</h2>
+  <p>The most portable Staff framework is the reversibility test. Classify the decision before you agonise over it:</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Class</th><th style="min-width:200px">Examples on Android</th><th>How to decide</th></tr></thead>
+    <tbody>
+      <tr><td>One-way door</td><td>Public SDK API shape, on-device data format, the reactive boundary of the app, KMP adoption, a sync protocol other clients implement.</td><td>Slow down. Write it up, prototype the risky part, get explicit disagreement on the record, design an exit path before committing.</td></tr>
+      <tr><td>Expensive to reverse</td><td>DI framework, module topology, navigation library, database engine.</td><td>Decide with 70% information, but isolate the choice behind an internal API so reversal is mechanical rather than architectural.</td></tr>
+      <tr><td>Cheap to reverse</td><td>Screen-level state pattern, a mapper's location, test library, code style.</td><td>Decide fast, pick a default, and stop the team from litigating it. Consistency is worth more than optimality here.</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>The associated interview skill is saying, unprompted: <em>"This is a one-way door because the data format ships to devices we can't force-update, so I'd spend a week on it. The state-management choice inside the feature is cheap to reverse, so I'd just pick one and move."</em> That single sentence does more for your level assessment than a perfect diagram.</p>
+
+  <h4>Writing the decision down</h4>
+  <p>Staff engineers are expected to produce ADRs. Interviewers sometimes ask you to sketch one verbally. The minimum viable shape:</p>
+  <div class="code1"><div class="lab">ADR skeleton — what interviewers expect you to name</div><pre>Context      What is true today, what forces are in tension, what we measured.
+Decision     One sentence, in the active voice. "We will …"
+Alternatives Two or three real options, each with why it lost — not strawmen.
+Consequences What becomes easy, what becomes hard, what we now owe.
+Reversal     What signal would make us revisit, and what the exit costs.
+Owner/date   Who is accountable, when it is re-evaluated.</pre></div>
+  <p>The two sections weak ADRs omit are <strong>Alternatives with honest reasons</strong> and <strong>Reversal</strong>. Both are exactly what a Staff interviewer is listening for.</p>
+
+  <h2><span class="cn">Chapter 5</span>The thirteen judgment lenses</h2>
+  <p>Applied to any design answer, these convert a competent technical description into a Staff one. You will not use all thirteen in a single answer; naming the three that dominate <em>this</em> problem, and saying why the others are secondary, is the actual skill.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Lens</th><th style="min-width:240px">The question it forces</th><th>Android-specific form</th></tr></thead>
+    <tbody>
+      <tr><td>Correctness</td><td>Does it produce the right result?</td><td>Including after process death, rotation, and a mid-flight cancellation.</td></tr>
+      <tr><td>Reliability</td><td>What happens when a dependency fails?</td><td>Offline, flaky cellular, backend 503, expired token, killed background work.</td></tr>
+      <tr><td>Scalability</td><td>What breaks at 10×?</td><td>10× items in the list, 10× screens, 10× engineers touching this module.</td></tr>
+      <tr><td>Performance</td><td>What is the latency and resource cost?</td><td>Frame budget, cold-start contribution, memory footprint, bytes over cellular.</td></tr>
+      <tr><td>Maintainability</td><td>Can a stranger change it safely?</td><td>Can a new hire in week two add a field without breaking three layers?</td></tr>
+      <tr><td>Testability</td><td>Can we verify it cheaply and deterministically?</td><td>Injectable dispatchers, fakes at the boundary, no real time in tests.</td></tr>
+      <tr><td>Security</td><td>What can an attacker do?</td><td>Rooted device, hostile app on the same device, MITM proxy, tampered APK.</td></tr>
+      <tr><td>Observability</td><td>How will we know it broke?</td><td>Which metric moves, within how long, and who is paged.</td></tr>
+      <tr><td>Operability</td><td>Can we intervene without a release?</td><td>Kill switch, remote config, staged rollout halt criteria.</td></tr>
+      <tr><td>Cost</td><td>What does it cost to run?</td><td>Telemetry volume, image CDN egress, push fan-out, build minutes.</td></tr>
+      <tr><td>Developer experience</td><td>Does it make engineers faster?</td><td>Build time, boilerplate per screen, time to first commit.</td></tr>
+      <tr><td>Business impact</td><td>Why does this matter commercially?</td><td>Conversion, retention, support load, App Store rating, time to market.</td></tr>
+      <tr><td>Organisational impact</td><td>Who else must change?</td><td>How many teams must adopt it, and who pays for their migration.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 6</span>Influence, mentorship, and driving architectural change</h2>
+  <p>The recurring Staff interview theme is change without authority. Four mechanisms, roughly in order of effectiveness:</p>
+  <ol>
+    <li><strong>A working prototype.</strong> The strongest argument in engineering is a branch that demonstrably builds 40% faster. It converts an opinion debate into a measurement debate.</li>
+    <li><strong>A written proposal with a named cost.</strong> "Three engineer-months, sequenced over two quarters, with the first increment shipping in three weeks" is arguable; "we should modularize" is not.</li>
+    <li><strong>A pilot team.</strong> Prove the approach with one willing team, publish their numbers, and let the second team adopt it because it works, not because you said so.</li>
+    <li><strong>Mechanisms, not memos.</strong> The change that survives you is the lint rule, the module template, the CI gate, the default in the project generator. Documentation decays; enforcement does not.</li>
+  </ol>
+
+  <div class="q">
+    <p class="qt">Interview question · leadership</p>
+    <p class="qh">"How do you get another team to adopt an architecture change that gives them no immediate product value?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>It tests whether you understand that engineering-quality work competes for the same funding as features, and whether you can make that case in a language product leadership accepts. Candidates who answer with "I'd explain why it's technically better" have not yet operated at this level.</p>
+    <h4>Deep answer <span class="chip c4">L4</span></h4>
+    <p>"First I'd check whether it actually should happen — 'no immediate product value' sometimes means 'no value.' Assuming it holds, I'd do four things. Convert it to a business unit: our old networking layer cost roughly 4 support escalations a week and 1.5 engineer-days per feature in workarounds, which I can express in engineer-months a year. Shrink the first increment until it fits inside work they're already doing — new screens use the new client, nobody backfills. Absorb the cost myself for the pilot: I write the migration for their first two screens so their perceived cost is a review, not a project. And attach it to something they already want, which was a flaky-test problem the new client made testable. What I would not do is make it a mandate from an architecture council; mandates without absorbed cost produce compliance theatre — teams add the wrapper and keep the old path."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What if after all that they still refuse?" — Escalate the decision, not the disagreement: put the cost and the risk in writing, let the accountable director choose, and then support the choice publicly even if it goes against you.</li>
+      <li>"How do you avoid becoming the person who migrates everyone's code?" — Absorb the cost for the pilot only; the second team gets a codemod and a template, the third gets documentation and a lint rule.</li>
+      <li>"How do you know the migration is actually working?" — A leading indicator (percentage of screens on the new path) and a lagging one (the escalation count you used to justify it). If the lagging one does not move within two quarters, stop.</li>
+      <li>"When would you abandon the migration?" — When the pilot's numbers do not reproduce, when the team that must own it afterwards will not, or when a platform shift makes the target obsolete.</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Part I checklist</h4>
+    <ul class="chk">
+      <li>I can name which Staff archetype the role I'm interviewing for actually is.</li>
+      <li>I have three stories where I created the ownership rather than receiving it.</li>
+      <li>I classify decisions as one-way / expensive / cheap out loud, unprompted.</li>
+      <li>Every design answer I give names an inversion condition.</li>
+      <li>I can express an engineering-quality investment in engineer-months and a business metric.</li>
+      <li>I have one story where my influence attempt failed, and what I learned.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#roadmap" data-p="roadmap"><span class="k">Previous</span><span class="t">← Study roadmap</span></a><a class="r" href="#p2" data-p="p2"><span class="k">Next</span><span class="t">Part II — Kotlin Mastery →</span></a></div>
+</section>

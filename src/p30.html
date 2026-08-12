@@ -1,0 +1,222 @@
+<section class="page" id="p30">
+  <header class="phead">
+    <p class="eyebrow">Part XXX</p>
+    <h1>Cheat Sheets &amp; <em>Final Checklists</em></h1>
+    <p class="deck">Compression, not new material. Everything here appears earlier in the book; this is what you read in the last week, and on the last day.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 176</span>One-page cheat sheets</h2>
+
+  <h3>Kotlin</h3>
+  <div class="code1"><div class="lab">Recall card</div><pre>NPE sources        platform types · reflective parsers · lateinit · !!
+Variance           out = produces (return) · in = consumes (param) · * = unknown
+reified            forces inline — keep the inlined body one line thick
+value class        boxes under generics, nullability, interface positions
+sealed             adding a subtype breaks binary compat for separate compilation
+data class         copy() bypasses factory invariants; prefer explicit withX
+delegation         overriding a member does NOT affect calls inside the delegate
+sequences          win on long chains + large source + short-circuit terminal
+                   sorted() defeats laziness
+interop            @JvmStatic @JvmOverloads @JvmName @Throws; internal is not private
+                   Kotlin List is java.util.List — mutable from Java</pre></div>
+
+  <h3>Coroutines and Flow</h3>
+  <div class="code1"><div class="lab">Recall card</div><pre>Scope rule         repositories expose suspend/Flow; callers own scopes
+                   GlobalScope never · injected AppScope deliberately
+                   WorkManager for anything that must survive process death
+Main-safety        belongs to the function that blocks; inject the dispatcher
+                   Room and Retrofit suspend fns are ALREADY main-safe
+Cancellation       cooperative · ensureActive() in CPU loops
+                   never catch CancellationException · cleanup in finally
+                   withContext(NonCancellable) only inside finally, kept tiny
+Errors             coroutineScope: sibling failure cancels all, rethrows
+                   supervisorScope: siblings survive
+                   async in a plain scope fails the parent AT THROW, not at await
+                   supervision comes from the SCOPE, not launch(SupervisorJob())
+Streams            StateFlow = state (conflated, distinct) · Channel = one-shot events
+                   SharedFlow replay>0 re-fires events after rotation
+                   cold flow: N collectors = N executions unless shared
+                   WhileSubscribed(5000) survives rotation, stops on background
+Operators          conflate=drop · buffer=keep · debounce=wait for silence
+                   sample=steady rate · flatMapLatest=cancel previous (UI default)
+Invariants         flowOn affects upstream · catch sees upstream only
+                   never withContext around emit; never try/catch around emit</pre></div>
+
+  <h3>Compose</h3>
+  <div class="code1"><div class="lab">Recall card</div><pre>Identity           positional in the slot table; key() makes it semantic
+State              mutating a list inside mutableStateOf does NOT notify
+Effects            LaunchedEffect = suspending work (key it correctly)
+                   DisposableEffect = register/unregister pairs
+                   rememberUpdatedState = fresh lambda in a long-lived effect
+                   derivedStateOf = high-freq input → low-freq output, cheap derivation
+Stability          List is unstable (interface) · use ImmutableList
+                   @Immutable is a promise, not a check
+                   strong skipping reduces the tax, doesn't replace immutable modelling
+Phases             composition → layout → draw
+                   Modifier.offset { } and graphicsLayer { } defer the read, skip phases
+Lists              key + contentType · no allocation in the item body
+                   never nest same-direction scrollables
+Architecture       Route (stateful) / Screen (stateless) — enables preview + screenshot
+Slow but low       → layout cost, draw cost, main-thread work, or missing baseline profile
+recomposition      → get a system trace; don't guess
+Semantics tree     = accessibility tree = test tree</pre></div>
+
+  <h3>Lifecycle and platform</h3>
+  <div class="code1"><div class="lab">Recall card</div><pre>Survives rotation        ViewModel
+Survives process death   SavedStateHandle, rememberSaveable, disk
+Survives everything      disk (Room, DataStore)
+Test process death       adb shell am kill  (NOT force-stop)
+Binder                   ~1MB per-process buffer; saved state travels over it
+Frame budget             16.7ms @60Hz · 8.3ms @120Hz
+ANR                      ~5s input · ~20s FGS start · Play threshold 0.47% sessions
+Launch modes             singleTask clears the stack above it
+Background work          WorkManager = eventually · FGS = now &amp; visible
+                         coroutine = neither durable nor guaranteed
+PendingIntent            FLAG_IMMUTABLE + explicit component
+Collection               repeatOnLifecycle cancels the producer;
+                         launchWhenStarted only pauses delivery</pre></div>
+
+  <h3>Architecture and modularization</h3>
+  <div class="code1"><div class="lab">Recall card</div><pre>Boundary test      justify by the change it isolates; collapse field-for-field mappers
+Clean AA           real win = pure-Kotlin domain, millisecond tests
+                   not "swap the database" — that never happens
+UseCase            introduce for logic, multiple sources, or reuse. Not per method
+Repository         data-access policy yes; domain rules no; UI state never
+State vs event     survives rotation = state; happens once = event
+Loading            per-section, not one global flag
+Modules            features never depend on features
+                   implementation by default; api only for public signatures
+                   shallow+wide parallelises; deep serialises
+                   ABI changes invalidate dependents; bodies don't
+                   one owner per module in CODEOWNERS
+                   enforcement in build logic, not in a wiki
+Breakpoint         modularization pays around 3 teams, not at a line count</pre></div>
+
+  <h3>Networking, storage, sync</h3>
+  <div class="code1"><div class="lab">Recall card</div><pre>Mobile network     latency and round-trip count dominate, not bandwidth
+                   radio tail time makes chatty clients expensive
+Interceptors       application = misses cache hits · network = every wire attempt
+                   Authenticator = 401 only, replays for you
+Retry              connection failures freely · post-send timeouts only with a key
+                   never 4xx · always jitter (herd → self-inflicted outage)
+Idempotency        key at USER COMMIT, persisted BEFORE the call, reused forever
+                   Unknown is a first-class outcome, never "failed"
+Truth              network writes to the store; the UI observes the store
+SQLite             WAL = concurrent readers, one writer
+                   batch inserts in one transaction (50–100×)
+                   EXPLAIN QUERY PLAN: "SCAN TABLE" = no index
+Room               observable queries invalidate per TABLE — bound with LIMIT
+                   every shipped schema version needs a tested path, forever
+Sync               opaque server cursor, advanced INSIDE the applying transaction
+                   deletions need tombstones + a retention window
+                   conflict policy is per data type; keep the base version to merge
+                   never resolve with client clocks
+Push               a wake signal, not data — makes handlers idempotent for free
+Bitmaps            w × h × 4 bytes; decode to display size</pre></div>
+
+  <h3>Performance, testing, security, CI</h3>
+  <div class="code1"><div class="lab">Recall card</div><pre>Perf method        quantify → segment → hypothesise → trace → fix → verify → gate
+                   measure on the 25th-percentile device, release build
+Startup            TTID + TTFD; three-tier init with an owner; CI budget
+                   baseline profile covers startup AND the primary scroll
+ANR                read EVERY thread; the cause is usually the lock holder
+Memory             retained ≠ shallow; unbounded growth is not a leak
+                   LeakCanary in instrumented CI
+Testing            fake what you own and reuse; mock what you don't
+                   inject dispatchers; virtual time; never delay() to wait
+                   flake is worse than absence → quarantine, owner, expiry
+                   measure PR wall-clock + change failure rate, not coverage
+Build              config cache, build cache, parallel, KSP — before restructuring
+                   volatile inputs (timestamps, abs paths) kill caching
+                   frame build time in engineer-hours
+Release            trains, staged rollout, automated halt criteria, kill switches
+                   THERE IS NO ROLLBACK
+Security           the client is hostile territory; enforce server-side
+                   obfuscation ≠ encryption ≠ security
+                   Keystore keys never enter your process; never reuse a GCM IV
+                   biometrics unlock a KEY, not a boolean
+                   PKCE in a Custom Tab; rotating refresh with reuse detection
+                   pinning needs backup pins, expiry, kill switch, monitoring</pre></div>
+
+  <h2><span class="cn">Chapter 177</span>100 things every Staff Android engineer should know</h2>
+  <p>A single-sitting read for the night before, weighted toward mechanism and failure modes.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Area</th><th>Facts</th></tr></thead>
+    <tbody>
+      <tr><td>Kotlin (1–12)</td><td>Platform types defeat null safety · reflective parsers can write null into non-null fields · <code>reified</code> forces inlining · value classes box under generics · sealed additions break binary compatibility · <code>copy()</code> bypasses invariants · delegation does not intercept internal calls · <code>internal</code> is not private in bytecode · Kotlin's List is mutable from Java · sequences lose on small collections · <code>sorted</code> defeats laziness · variance is a public-API decision.</td></tr>
+      <tr><td>Coroutines (13–28)</td><td>Cancellation is cooperative · CPU loops need <code>ensureActive</code> · never catch <code>CancellationException</code> · <code>async</code> fails the parent at throw time · supervision comes from the scope · <code>launch(SupervisorJob())</code> does nothing useful · Mutex is not reentrant · never hold a lock across a suspension · <code>Dispatchers.IO</code> and <code>Default</code> share a pool · <code>limitedParallelism</code> bounds a subsystem · <code>runBlocking</code> never on main · Room/Retrofit suspend fns are main-safe · injected dispatchers make tests deterministic · <code>GlobalScope</code> breaks ownership · app-scope is not durability · WorkManager is.</td></tr>
+      <tr><td>Flow (29–40)</td><td>Cold means per-collector execution · <code>flowOn</code> affects upstream · <code>catch</code> sees upstream only · never <code>withContext</code> around <code>emit</code> · StateFlow conflates and drops · SharedFlow replay re-fires events · Channel delivers once · <code>WhileSubscribed(5000)</code> survives rotation · <code>replayExpiration</code> controls staleness · <code>flatMapLatest</code> is the UI default · <code>debounce</code> adds latency by design · a shared flow's error kills every collector.</td></tr>
+      <tr><td>Platform (41–56)</td><td>Zygote makes startup fast · Binder buffer is ~1 MB · saved state travels over Binder · Choreographer runs per VSYNC · a 40 ms block drops consecutive frames · ANR at ~5 s input · ViewModel survives rotation only · <code>am kill</code> not <code>force-stop</code> · "don't keep activities" tests a different path · singleTask clears the stack · <code>onNewIntent</code> must be handled · PendingIntent must be immutable · package visibility filters queries · notifications are permission-gated · background location needs justification · exact alarms need a special permission.</td></tr>
+      <tr><td>Compose (57–70)</td><td>Slot-table identity is positional · <code>key</code> makes it semantic · mutating a list in <code>mutableStateOf</code> does not notify · <code>LaunchedEffect</code> keys matter · <code>DisposableEffect</code> for register/unregister · <code>rememberUpdatedState</code> for stale lambdas · <code>derivedStateOf</code> only for coarse outputs · List is unstable · <code>@Immutable</code> is unverified · strong skipping uses instance equality · deferred reads skip phases · lazy lists compose only what is visible · semantics = accessibility = tests · low recomposition can still be slow.</td></tr>
+      <tr><td>Architecture (71–80)</td><td>Justify boundaries by isolated change · pure domain = fast tests · pass-through use cases are cost · repositories never emit UI state · state survives rotation, events do not · per-section loading · features never depend on features · one source of truth per concept · enforcement beats documentation · sometimes the answer is less architecture.</td></tr>
+      <tr><td>Data and network (81–90)</td><td>Round trips dominate mobile latency · radio tail costs battery · Authenticator handles 401 replay · single-flight refresh by stale-token comparison · never retry 4xx · always jitter · idempotency keys are persisted at commit · Unknown is a first-class outcome · WAL allows concurrent readers · sync cursors advance inside the transaction.</td></tr>
+      <tr><td>Operations (91–100)</td><td>Measure on 25th-percentile devices · TTID and TTFD together · baseline profiles cover scroll too · read every thread in an ANR trace · unbounded growth is not a leak · flake is worse than no tests · volatile build inputs kill caching · there is no rollback · the client is hostile territory · every third-party SDK needs a kill switch and an owner.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 178</span>Fifty questions you must answer cold</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Group</th><th>Questions</th></tr></thead>
+    <tbody>
+      <tr><td>Level (1–5)</td><td>Senior vs Staff · what do you own that nobody assigned · a decision you got wrong · how you influence without authority · what you would change about your current architecture.</td></tr>
+      <tr><td>Kotlin (6–12)</td><td>Why NPEs still happen · <code>out</code> vs <code>in</code> · cost of <code>reified</code> · when value classes box · sealed vs enum · when a sequence loses · what <code>internal</code> guarantees.</td></tr>
+      <tr><td>Coroutines (13–22)</td><td>Structured concurrency in one sentence · three async, one fails · why <code>GlobalScope</code> is architectural · making CPU work cancellable · why never catch <code>CancellationException</code> · where main-safety belongs · Mutex vs atomic vs confinement · single-flight refresh · deduplicating five callers · testing without <code>delay</code>.</td></tr>
+      <tr><td>Flow (23–29)</td><td>Cold vs hot · five collectors, how many calls · StateFlow vs SharedFlow vs Channel · why <code>WhileSubscribed(5000)</code> · <code>flatMapLatest</code> vs merge · exception transparency · where <code>stateIn</code> belongs.</td></tr>
+      <tr><td>Platform (30–36)</td><td>What survives process death · how to test it · why a 40 ms block drops three frames · WorkManager's actual guarantee · why <code>FLAG_IMMUTABLE</code> · what <code>singleTask</code> does to the back stack · what breaks with a new targetSdk.</td></tr>
+      <tr><td>Compose (37–42)</td><td>What makes a type stable · why <code>list.add()</code> does not recompose · when <code>derivedStateOf</code> hurts · the three phases and how to skip one · optimising a 10,000-item list · slow screen with low recomposition.</td></tr>
+      <tr><td>Design (43–50)</td><td>Offline-first in 60 seconds · two devices edit the same record · duplicate payment prevention · push vs socket vs poll · cursor vs offset pagination · one source of truth · how you would know it is broken in production · what you would deliberately not build.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 179</span>The last 24 hours</h2>
+  <div class="panel">
+    <h4>Review — two hours maximum</h4>
+    <ul class="chk">
+      <li>These cheat sheets, once, out loud where you hesitate.</li>
+      <li>Your eight stories (Part XXIII) — say the opening two sentences of each aloud.</li>
+      <li>The design framework timings (Part XVI) until the phases are automatic.</li>
+      <li>The thirteen lenses (Part I) — you should be able to list them in fifteen seconds.</li>
+      <li>Your two weakest rapid-fire bands from Part XXVII.</li>
+    </ul>
+    <h4>Deliberately skip</h4>
+    <ul class="chk">
+      <li>Anything new. A half-learned concept is worse than an honest "I have not used that."</li>
+      <li>Obscure API details. Nobody is failed at Staff for not recalling a parameter name.</li>
+      <li>Reading more model answers. At this point, production beats recognition.</li>
+    </ul>
+    <h4>Logistics</h4>
+    <ul class="chk">
+      <li>Confirm the schedule, the format, and what each round covers — ask the recruiter, they will tell you.</li>
+      <li>Test the video and screen-share setup on the actual platform.</li>
+      <li>Have a drawing tool ready and rehearse using it once; fumbling with a whiteboard app costs real minutes.</li>
+      <li>Water, and a hard stop between rounds if you can get one.</li>
+    </ul>
+    <h4>First five minutes of each round</h4>
+    <ul class="chk">
+      <li>Ask what the round covers and how long it is. This is normal and it prevents mis-pacing.</li>
+      <li>For design: spend the first five minutes on requirements. Say that you are doing so.</li>
+      <li>For coding: write the signature first, and ask whether it is what they want.</li>
+      <li>For behavioural: pick your story deliberately, and say which one you are choosing and why.</li>
+    </ul>
+    <h4>When a round is going badly</h4>
+    <ul class="chk">
+      <li>Say it out loud: "I've gone down a path I don't think is right — let me step back." Recovery is scored positively; silent flailing is not.</li>
+      <li>Return to constraints. "What dominates here is X" re-anchors the conversation.</li>
+      <li>Use the hint. Interviewers offer hints to see whether you collaborate; refusing one scores worse than needing it.</li>
+      <li>If you do not know: say so, then say how you would find out. That is a legitimate Staff answer.</li>
+      <li>A bad round is not a bad loop. Reset between rounds — committees weigh the whole signal.</li>
+    </ul>
+    <h4>Questions worth asking them</h4>
+    <ul class="chk">
+      <li>How does a technical decision that spans two teams actually get made here?</li>
+      <li>What was the last significant technical initiative that failed, and why?</li>
+      <li>Who owns mobile architecture today, and how is that changing?</li>
+      <li>What would you want the person in this role to have changed in twelve months?</li>
+      <li>What is the current state of build times, crash-free rate and release cadence?</li>
+    </ul>
+  </div>
+
+  <div class="note"><span class="lab">A closing note</span><p>The material in this book will not, by itself, get you the offer. What gets the offer is the habit it is built around: naming the constraint, choosing with a stated criterion, saying what would change your mind, and knowing how you would find out you were wrong. Interviewers can tell within two questions whether that habit is real. Practise it out loud until it is.</p></div>
+
+  <div class="pagenav"><a href="#p29" data-p="p29"><span class="k">Previous</span><span class="t">← Part XXIX</span></a><a class="r" href="#home" data-p="home"><span class="k">Back to</span><span class="t">Contents →</span></a></div>
+</section>

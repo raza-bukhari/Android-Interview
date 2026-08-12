@@ -1,0 +1,131 @@
+<section class="page" id="p18">
+  <header class="phead">
+    <p class="eyebrow">Part XVIII</p>
+    <h1>Legacy Code &amp; <em>Migration</em></h1>
+    <p class="deck">Staff engineers are hired to change systems that are already running and cannot stop. Every migration here is treated as a programme with risk, rollback, adoption and metrics — never as a rewrite.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 124</span>The case against rewrites</h2>
+  <p>The rewrite argument is always the same: the old system is unknowable, the new one will be clean, and it will take one quarter. The observed outcome is also always the same. Three reasons, worth being able to articulate:</p>
+  <ul>
+    <li><strong>The old system encodes years of undocumented requirements</strong> — the edge cases, the OEM workarounds, the regulatory rule added after an incident. A rewrite rediscovers them one production bug at a time.</li>
+    <li><strong>Two systems must be maintained during the transition</strong>, so velocity halves precisely when the organisation is being asked to be patient.</li>
+    <li><strong>There is no incremental value.</strong> A rewrite delivers nothing until it delivers everything, which makes it the first thing cut when priorities shift — leaving you with two half-systems, the worst possible state.</li>
+  </ul>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Pattern</th><th>Mechanism</th><th>Use when</th></tr></thead>
+    <tbody>
+      <tr><td>Strangler fig</td><td>New code intercepts at a boundary; old code shrinks until it can be deleted</td><td>Default for almost everything on mobile</td></tr>
+      <tr><td>Branch by abstraction</td><td>Introduce an interface, implement it twice, switch behind a flag</td><td>Swapping an infrastructure component (networking, DI, storage)</td></tr>
+      <tr><td>Parallel run</td><td>Both implementations execute; compare results, only one is used</td><td>High-risk logic where correctness must be proven: pricing, sync, crypto</td></tr>
+      <tr><td>New-code-only rule</td><td>Old code frozen, all new work uses the new approach</td><td>Cheap first step for any migration; buys time and stops the bleeding</td></tr>
+      <tr><td>Big-bang rewrite</td><td>Replace wholesale</td><td>Almost never. Defensible only for a genuinely small, isolated, well-specified component</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="code1"><div class="lab">Branch by abstraction, with a kill switch — the safest shape</div><pre>interface PaymentClient { suspend fun charge(req: ChargeRequest): ChargeResult }
+
+class LegacyPaymentClient(...) : PaymentClient
+class NewPaymentClient(...)    : PaymentClient
+
+class RoutingPaymentClient(
+    private val legacy: PaymentClient,
+    private val new: PaymentClient,
+    private val flags: FeatureFlags,
+) : PaymentClient {
+    override suspend fun charge(req: ChargeRequest): ChargeResult =
+        if (flags.isEnabled("payments.new_client", req.userId)) {
+            runCatching { new.charge(req) }
+                .onFailure { metrics.count("new_client_failure") }
+                .getOrElse { legacy.charge(req) }      // automatic fallback
+        } else legacy.charge(req)
+}</pre></div>
+  <p>Three properties this gives you and a rewrite does not: rollout by percentage, instant rollback without a release, and a metric comparing the two paths. That is what makes a migration <em>safe</em> rather than merely <em>planned</em>.</p>
+
+  <h2><span class="cn">Chapter 125</span>The eight canonical Android migrations</h2>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Migration</th><th style="min-width:200px">Interop mechanism</th><th>The trap</th></tr></thead>
+    <tbody>
+      <tr><td>Java → Kotlin</td><td>Full bidirectional interop; convert file by file</td><td>Auto-converted code is full of platform types and <code>!!</code>. Converting a file without reviewing nullability makes the code <em>less</em> safe.</td></tr>
+      <tr><td>XML → Compose</td><td><code>ComposeView</code> in layouts, <code>AndroidView</code> in Compose</td><td>Interop at the leaf level (a Compose item inside a RecyclerView) performs badly and complicates state. Migrate whole screens, not fragments of them.</td></tr>
+      <tr><td>RxJava → Coroutines</td><td><code>kotlinx-coroutines-rx3</code>: <code>asFlow()</code>, <code>rxSingle {}</code></td><td>Rx's error handling is not equivalent. An <code>onError</code> that terminated a stream becomes an exception that cancels a scope — a semantic change that surfaces as unexpected screen teardown.</td></tr>
+      <tr><td>LiveData → StateFlow</td><td><code>asFlow()</code>, <code>asLiveData()</code></td><td>LiveData is lifecycle-aware by default; StateFlow is not. Migrating without <code>repeatOnLifecycle</code> converts a safe observer into a background-running collector.</td></tr>
+      <tr><td>MVP → MVVM/MVI</td><td>Screen by screen; no shared machinery</td><td>Presenters often hold view references and imperative state. Porting the presenter verbatim into a ViewModel reproduces the problem with new names.</td></tr>
+      <tr><td>Monolith → modules</td><td>Extract leaves first (Part VIII)</td><td>Extracting features before shared infrastructure creates cycles and forces the <code>:core:shared</code> anti-pattern.</td></tr>
+      <tr><td>SQLite → Room</td><td>Room over the existing DB file with a matching schema and a starting version</td><td>The legacy schema often violates Room's expectations (missing primary keys, loose types). Validate with <code>MigrationTestHelper</code> against a <em>real production database file</em>, not a fresh one.</td></tr>
+      <tr><td>Manual DI → Hilt</td><td>Coexistence via <code>@EntryPoint</code> into the legacy graph</td><td>Attempting the whole graph at once. Migrate leaves upward, keeping the legacy container reachable from the new one.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — a semantically wrong Rx migration</div><pre>// Rx: error terminates this stream only; the screen survives.
+repo.observeUser()
+    .subscribe({ render(it) }, { showError(it) })
+
+// Naive port: an exception here cancels viewModelScope,
+// killing every other collector in the ViewModel.
+viewModelScope.launch {
+    repo.observeUser().collect { render(it) }
+}</pre>
+      <p class="why">A behaviour change disguised as a syntax change. It presents in production as unrelated parts of the screen going blank after one failure.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — model the failure explicitly</div><pre>viewModelScope.launch {
+    repo.observeUser()
+        .map&lt;User, UserState&gt; { UserState.Ready(it) }
+        .catch { emit(UserState.Failed(it.retryable)) }   // contained
+        .collect { _state.update { s -&gt; s.copy(user = it) } }
+}</pre>
+      <p class="why">Failure becomes a value in this stream, matching the Rx semantics you are replacing. The general rule for any migration: <strong>enumerate the behavioural differences before converting a line of code.</strong></p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 126</span>Technical debt as a managed portfolio</h2>
+  <p>The word "debt" is useful precisely because it implies interest. The Staff skill is quantifying that interest so it competes fairly with feature work.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Class</th><th>Example</th><th>Carrying cost — how to measure it</th></tr></thead>
+    <tbody>
+      <tr><td>Velocity debt</td><td>18-minute builds; a 4,000-line God class</td><td>Engineer-hours per week; PR cycle time on affected files</td></tr>
+      <tr><td>Defect debt</td><td>An untested legacy sync path</td><td>Incidents and support tickets per quarter attributable to it</td></tr>
+      <tr><td>Risk debt</td><td>An unmaintained SDK; a pinned certificate with no rotation plan</td><td>Probability × impact; sometimes a single existential event</td></tr>
+      <tr><td>Opportunity debt</td><td>An architecture that blocks a planned product capability</td><td>Delay in quarters to the roadmap item it blocks</td></tr>
+      <tr><td>Deliberate debt</td><td>A shortcut taken to hit a launch, with a documented expiry</td><td>Legitimate — this is the only class that is a decision rather than a symptom</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>When debt is the right answer:</strong> for code that is about to be deleted, for a validated-then-discarded experiment, or when time-to-market genuinely dominates. The failure is not taking the shortcut; it is taking it without recording the decision, the cost and the expiry. A candidate who says "I always pay down debt immediately" is describing a preference, not a judgment.</p>
+
+  <h2><span class="cn">Chapter 127</span>Evaluating Kotlin Multiplatform</h2>
+  <div class="q">
+    <p class="qt">Interview question · increasingly common at Staff level</p>
+    <p class="qh">"Should we adopt KMP? How would you decide?"</p>
+    <h4>What is being tested</h4>
+    <p>Whether you evaluate a technology against your organisation's actual constraints, or adopt it because it is current. Both "yes, it's the future" and "no, it's immature" are weak answers.</p>
+    <h4>Answer <span class="chip c4">L4</span></h4>
+    <p>"I'd frame it as a question about <em>where duplication is actually costing us</em>, and start by measuring rather than assuming.</p>
+    <p><strong>Where KMP genuinely pays:</strong> logic that is identical on both platforms and changes often — domain rules, validation, a sync engine, analytics event definitions, API models. If we have had three bugs this year where Android and iOS implemented the same business rule differently, that is a concrete number and it is the case for adoption.</p>
+    <p><strong>Where it does not:</strong> UI. Compose Multiplatform is viable, but on iOS it costs platform fidelity and hiring flexibility, and UI is where the platforms genuinely differ. I would not share UI in a first adoption.</p>
+    <p><strong>The costs people underestimate:</strong> build complexity and CI time; debugging across the boundary, which is meaningfully worse; library availability for anything platform-adjacent; and — the largest — <em>team topology</em>. Shared code needs an owner. If the Android team writes it and the iOS team consumes it, you have created a dependency that will be resented on one side and deprioritised on the other. That organisational question kills more KMP adoptions than any technical one.</p>
+    <p><strong>How I'd decide:</strong> a time-boxed pilot on one bounded domain module with real value — I'd pick something with demonstrated cross-platform divergence bugs. Success criteria agreed in advance: iOS build time impact under a stated threshold, no reduction in iOS engineers' ability to work independently, and the divergence bugs actually stopping. Then a decision with both teams present.</p>
+    <p><strong>And the exit path</strong>, because this is close to a one-way door: shared code must remain plain Kotlin behind interfaces, so if we reverse the decision the iOS side re-implements against a known contract rather than untangling a fused codebase. I would want that written into the pilot's ground rules before we start."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What if the iOS team is against it?" — Then it probably fails regardless of technical merit, and I would say so. Shared code with an unwilling consumer becomes shared code nobody maintains. The right move is to fix the willingness question first, not to mandate.</li>
+      <li>"How does hiring change?" — The Android pool is unaffected; the iOS pool narrows if you require Kotlin. Worth quantifying in a market where iOS hiring is already hard.</li>
+      <li>"What about Compose Multiplatform on iOS?" — Viable, and improving, but it is a separate and much larger decision than sharing domain logic. Bundling them is how a modest, defensible proposal becomes an unfundable one.</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Part XVIII rapid recall</h4>
+    <ul>
+      <li>Rewrites lose undocumented requirements, halve velocity, and deliver nothing until the end.</li>
+      <li>Branch by abstraction with a flag gives percentage rollout, instant rollback and a comparison metric.</li>
+      <li>Enumerate behavioural differences before converting: Rx→Flow error semantics, LiveData→StateFlow lifecycle.</li>
+      <li>"New code only" is the cheapest first step in any migration.</li>
+      <li>Migrate whole Compose screens, not leaves inside RecyclerViews.</li>
+      <li>Quantify debt as carrying cost so it competes with features; deliberate debt needs a recorded expiry.</li>
+      <li>KMP is a team-topology decision as much as a technical one; share domain, not UI, and keep an exit path.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p17" data-p="p17"><span class="k">Previous</span><span class="t">← Part XVII</span></a><a class="r" href="#p19" data-p="p19"><span class="k">Next</span><span class="t">Part XIX — Production Incidents →</span></a></div>
+</section>

@@ -1,0 +1,147 @@
+<section class="page" id="p25">
+  <header class="phead">
+    <p class="eyebrow">Part XXV</p>
+    <h1>Traps &amp; <em>Trick Questions</em></h1>
+    <p class="deck">Questions where the confident, conventional answer is the wrong one. The interviewer is not testing knowledge — they are testing whether you reason from context or recite from dogma.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 156</span>The answer shape that works every time</h2>
+  <p>Every question in this part has the same structure underneath, so the answer has the same shape:</p>
+  <div class="code1"><div class="lab">Four moves, roughly 90 seconds</div><pre>1. Reject the universal.  "No — and the interesting part is when it's wrong."
+2. Name the criterion.    "The decision turns on X, not on the technology."
+3. Apply it here.         "For a screen like this, X says …"
+4. State the inversion.   "It flips when Y — for example …"</pre></div>
+  <div class="note"><span class="lab">Two ways to fail</span><p><strong>Dogma:</strong> "Yes, always — it's best practice." <strong>Evasion:</strong> "It depends." The second is worse than it looks: it sounds senior but conveys nothing. "It depends on whether the data has other writers" is an answer; "it depends" is a stall.</p></div>
+
+  <h2><span class="cn">Chapter 157</span>Thirty questions where the obvious answer is wrong</h2>
+
+  <div class="q">
+    <p class="qt">Trap 1</p>
+    <p class="qh">"Should every repository expose <code>Flow</code>?"</p>
+    <p><strong>No.</strong> The criterion is whether the data has <em>other writers</em>. If a sync worker, a push handler or another screen can change it, a one-shot read is a bug waiting to happen and you need observation. If it is a command — submit, upload, refresh — a <code>Flow</code> is worse than a <code>suspend</code> function: the caller must remember to terminate it, and errors become emissions instead of exceptions, losing structured concurrency's propagation. <strong>Inversion:</strong> if you later add offline sync, previously-static data acquires other writers, and the answer changes for those types specifically — not for all of them.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 2</p>
+    <p class="qh">"Is Clean Architecture always better?"</p>
+    <p><strong>No.</strong> The criterion is the expected rate and cost of change at each boundary. On a six-screen app with three engineers, the layering costs 3–5 files per feature and buys isolation from changes that will not happen. Its genuine win is a pure-Kotlin domain with millisecond tests — so if you are not writing domain tests, you are paying for the architecture and not collecting. <strong>Inversion:</strong> once several teams share domain concepts, or the domain rules outlive the current backend, the boundary starts paying for itself.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 3</p>
+    <p class="qh">"Is MVI better than MVVM?"</p>
+    <p><strong>Neither is better.</strong> Both are unidirectional with immutable state; the only real difference is whether input is funnelled through one channel. That funnel buys traceability and replayability, and costs an intent type, a reducer and more files per screen. On a settings screen it is pure cost; on a checkout flow with three concurrent async inputs it is worth it. A codebase using both, with a written rule about which goes where, is a sign of judgment — not inconsistency.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 4</p>
+    <p class="qh">"Should every screen have a ViewModel?"</p>
+    <p><strong>No.</strong> A ViewModel exists to survive configuration change and to hold state off the UI. A purely static screen — a legal text page, an onboarding illustration — has no state to survive. Adding one costs a file, a DI binding and a test nobody writes. <strong>Inversion:</strong> the moment it acquires an async load or any state that must survive rotation, it needs one. And note the opposite trap: several screens sharing an activity-scoped ViewModel is usually worse than each having its own.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 5</p>
+    <p class="qh">"Should everything be immutable?"</p>
+    <p><strong>Mostly, but not everything, and the exceptions are principled.</strong> Immutable state is correct for UI state and domain models — it is what makes Compose skipping and concurrent reads safe. But <code>data class copy()</code> on a large object in a hot loop allocates; a 5,000-element list copied per emission is a measurable performance problem. Use persistent collections for structural sharing, or a bounded mutable buffer behind an immutable interface. <strong>Inversion:</strong> profile first — this only matters in hot paths, and premature mutability is a much worse bug source than the allocation it saves.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 6</p>
+    <p class="qh">"Should we always use coroutines?"</p>
+    <p><strong>No.</strong> Work that must survive process death belongs in WorkManager — a coroutine of any scope dies with the process. Genuinely synchronous, fast, local computation does not need suspension and adds ceremony. And a callback API with a single call site does not need <code>callbackFlow</code>. <strong>Inversion:</strong> the moment there is cancellation, concurrency or a lifecycle relationship, coroutines are correct.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 7</p>
+    <p class="qh">"Should we always use Compose?"</p>
+    <p><strong>For new screens, yes by default. For migrating existing ones, no.</strong> The criterion is not which is better but what the migration costs against what it returns. A stable, working XML screen that nobody touches returns nothing for a rewrite. Interop at the leaf level — Compose items inside a RecyclerView — performs poorly and complicates state, so migrate whole screens or not at all. <strong>Inversion:</strong> a screen under active development, or one whose XML complexity is the reason changes are slow, is worth converting.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 8</p>
+    <p class="qh">"Should we always use dependency injection?"</p>
+    <p><strong>Yes to constructor injection; no to a DI framework in every case.</strong> The distinction matters: constructor injection is a design practice with no cost. A framework buys graph management and scoping, and costs build time (kapt/KSP across every module) and a learning curve. For a small app, manual construction at a composition root is genuinely simpler. For a library you publish, no framework at all — forcing your DI choice on consumers is a hostile API decision.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 9</p>
+    <p class="qh">"Should repositories contain business logic?"</p>
+    <p><strong>Some, and the line is worth being precise about.</strong> Data-access policy — caching, retry, choosing local versus remote, merging sources — <em>is</em> the repository's job and putting it elsewhere leaks storage concerns upward. Domain rules — eligibility, pricing, validation — are not, because they need to be testable and reusable without a data layer. The test: <em>would this rule still exist if we changed how we store data?</em> If yes, it is domain logic.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 10</p>
+    <p class="qh">"Should we always modularize?"</p>
+    <p><strong>No.</strong> Modularization's benefits — parallel builds, enforced boundaries, ownership — mostly accrue with team count, not line count. Below roughly three teams, the coordination and build-configuration overhead can exceed the benefit, and a poorly-shaped module graph builds <em>slower</em> than a monolith. <strong>Inversion:</strong> more than three teams, or a build already dominated by a single module's recompilation.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 11</p>
+    <p class="qh">"Should we always cache?"</p>
+    <p><strong>No, and this is the trap most people fall into.</strong> A cache adds a second source of truth, an invalidation problem and a staleness bug class. Do not cache data that is cheap to fetch and expensive to be wrong about — a price, an account balance, inventory. The criterion is the <em>cost of staleness</em> versus the cost of fetching. A wrong balance shown confidently is worse than a spinner.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Trap 12</p>
+    <p class="qh">"Should we always retry network requests?"</p>
+    <p><strong>No, and getting this wrong causes outages.</strong> Retry only what is safe and transient: connection failures and 5xx with jittered backoff. Never retry 4xx — the request is deterministic and retrying hides the bug. Never blind-retry a non-idempotent write after a post-send timeout; you need an idempotency key first. And remember that a million clients retrying in unison is a self-inflicted denial of service — which is why jitter and circuit breaking are not optional extras.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Traps 13–30</p>
+    <p class="qh">Rapid versions</p>
+    <div class="tw"><table>
+      <thead><tr><th style="min-width:250px">Question</th><th>The criterion, and the inversion</th></tr></thead>
+      <tbody>
+        <tr><td>13. "Should everything be offline-first?"</td><td>Only where users author data or connectivity is unreliable. It roughly doubles every feature's state space. A price-comparison app's stale data is worthless.</td></tr>
+        <tr><td>14. "Is 100% test coverage the goal?"</td><td>No. Coverage is a diagnostic. Teams told to hit a number write tests for getters. Target defect escape rate instead.</td></tr>
+        <tr><td>15. "Should we always use <code>StateFlow</code> over <code>LiveData</code>?"</td><td>For new code yes, but LiveData is lifecycle-aware by default and StateFlow is not — a careless migration creates background collectors. The migration must be justified per module.</td></tr>
+        <tr><td>16. "Is <code>suspend</code> always better than a callback?"</td><td>For request/response yes. For a multi-emission platform callback, <code>callbackFlow</code> — and for a single call site in Java-interop code, a callback is fine.</td></tr>
+        <tr><td>17. "Should we use a use case for every repository call?"</td><td>No — pass-through use cases are pure ceremony. Introduce one for logic, multiple sources, or reuse.</td></tr>
+        <tr><td>18. "Should domain models always differ from API models?"</td><td>Where the schemas have diverged or are expected to. Field-for-field mappers are a cost with no purchase.</td></tr>
+        <tr><td>19. "Is a single-activity app always right?"</td><td>Almost always, but multi-activity is legitimate for genuinely separate task surfaces — a share target, a widget configuration, a picker launched by other apps.</td></tr>
+        <tr><td>20. "Should we always target the newest API level?"</td><td>You must, for Play. But <em>adopting</em> new behaviour is separate from targeting, and each targetSdk bump needs a behaviour-change audit, not just a version edit.</td></tr>
+        <tr><td>21. "Are microservices' lessons applicable to mobile modules?"</td><td>Partly. Boundaries and ownership transfer; independent deployment does not — you ship one binary, so module boundaries buy build time and clarity, not release independence.</td></tr>
+        <tr><td>22. "Should the UI ever talk to the repository directly?"</td><td>Via a state holder, yes — skipping the domain layer is fine when there is no domain logic. Skipping the state holder is not.</td></tr>
+        <tr><td>23. "Is Room always better than raw SQLite?"</td><td>Yes for almost all apps. The exception is a highly dynamic schema or query shape that Room's compile-time model cannot express — and then you still use Room's <code>SupportSQLite</code> layer.</td></tr>
+        <tr><td>24. "Should we always encrypt local data?"</td><td>No. It costs performance and adds a key-loss failure mode where data becomes unrecoverable. Encrypt what is sensitive; classify first.</td></tr>
+        <tr><td>25. "Should we pin certificates?"</td><td>Only with backup pins, an expiry, a kill switch and monitoring. Pinning without an operational plan is a way to brick your app remotely.</td></tr>
+        <tr><td>26. "Is more abstraction safer?"</td><td>No. Each layer must be understood by everyone who changes it. Unused flexibility is a permanent tax paid for a change that may never come.</td></tr>
+        <tr><td>27. "Should we always fix flaky tests immediately?"</td><td>Quarantine immediately, fix on a deadline. Leaving them in the blocking suite trains engineers to re-run failures, which is the actual damage.</td></tr>
+        <tr><td>28. "Should feature flags be permanent?"</td><td>No. A flag is an untested code path; every one needs an owner and an expiry. Kill switches are the deliberate exception and should be labelled as such.</td></tr>
+        <tr><td>29. "Should we always A/B test?"</td><td>No. It costs a variant's worth of complexity and needs enough traffic for significance. Test decisions that are contested and reversible; do not test obvious fixes or things you would ship regardless.</td></tr>
+        <tr><td>30. "Should Staff engineers still write code?"</td><td>Yes, but selectively — the risky parts, the exemplars, the prototypes that make an argument. An engineer who writes none loses credibility and calibration; one who writes only features is not operating at the level.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <h2><span class="cn">Chapter 158</span>Disagreeing with the interviewer's premise</h2>
+  <p>Sometimes the trap is embedded in the question: "How would you make sure the app never shows stale data?" or "How would you guarantee push notifications arrive within a minute?" Both premises are unachievable, and accepting them leads you into an answer that is confidently wrong.</p>
+  <div class="code1"><div class="lab">How to push back without friction</div><pre>1. Acknowledge the underlying goal.
+   "The goal is that users trust what they see — agreed, that matters."
+2. Name the constraint plainly, without lecturing.
+   "Guaranteed freshness isn't achievable on a device that can be offline."
+3. Offer the achievable version.
+   "What we can do is bound the staleness and make it visible: refresh
+    on foreground, show an 'as of' timestamp, and push-invalidate."
+4. Check you've understood the intent.
+   "Is that the shape you're after, or is there a hard requirement
+    behind it I should design to?"</pre></div>
+  <p>That last step is what keeps it collaborative. Some interviewers are testing whether you push back; others genuinely have a constraint in mind. Asking distinguishes them, and costs nothing.</p>
+
+  <div class="panel">
+    <h4>Part XXV rapid recall</h4>
+    <ul>
+      <li>Reject the universal, name the criterion, apply it here, state the inversion.</li>
+      <li>"It depends" is only an answer when followed by <em>what</em> it depends on.</li>
+      <li>Flow vs suspend turns on whether the data has other writers.</li>
+      <li>Clean Architecture pays when you actually write domain tests.</li>
+      <li>Caching turns on the cost of staleness, not on whether caching is possible.</li>
+      <li>Never retry 4xx; never blind-retry a non-idempotent write.</li>
+      <li>Modularization pays with team count, not line count.</li>
+      <li>Unachievable premises should be named, reframed, and confirmed — not accepted.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p24" data-p="p24"><span class="k">Previous</span><span class="t">← Part XXIV</span></a><a class="r" href="#p26" data-p="p26"><span class="k">Next</span><span class="t">Part XXVI — Comparisons →</span></a></div>
+</section>

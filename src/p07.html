@@ -1,0 +1,237 @@
+<section class="page" id="p7">
+  <header class="phead">
+    <p class="eyebrow">Part VII</p>
+    <h1>Android <em>Architecture</em></h1>
+    <p class="deck">Architectures compared honestly, including the many cases where the more sophisticated option is the wrong one. The recurring test: can you justify a boundary by what it prevents, not by what it is called?</p>
+  </header>
+
+  <h2><span class="cn">Chapter 48</span>Boundaries: what they cost and what they buy</h2>
+  <p>Every layer boundary buys one thing — the ability to change one side without the other — and charges three: indirection, mapping code, and a decision every engineer must make correctly ("where does this go?"). A boundary is justified when the change it isolates is <em>likely</em> and the cost of the change without it is <em>high</em>.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:170px">Boundary</th><th>Isolates</th><th>Worth it when</th></tr></thead>
+    <tbody>
+      <tr><td>UI ↔ state holder</td><td>Rendering from logic</td><td>Always. It is what makes the UI testable and previewable.</td></tr>
+      <tr><td>Domain ↔ data</td><td>Business rules from storage and transport</td><td>The rules are non-trivial, reused across screens, or outlive the current backend.</td></tr>
+      <tr><td>Domain models ≠ DTOs</td><td>Your model from the server's schema</td><td>The API is owned by another team, versioned, or shaped for the backend's convenience.</td></tr>
+      <tr><td>Feature ↔ feature</td><td>Teams from each other</td><td>More than ~3 teams. Below that, the coordination cost exceeds the benefit.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><span class="lab">The anaemic-layer smell</span><p>If your <code>UserDomainModel</code> has exactly the same fields as <code>UserDto</code> and <code>UserUiModel</code>, and the mappers are field-for-field copies, that boundary is currently costing you three files per entity and buying nothing. The honest Staff position: keep the boundary where the schemas <em>have</em> diverged or are <em>expected</em> to; collapse it where they have not. "We always map" and "we never map" are both dogma.</p></div>
+
+  <h2><span class="cn">Chapter 49</span>Clean Architecture, honestly assessed</h2>
+  <pre class="mermaid">
+flowchart LR
+  subgraph UI["UI layer"]
+    C["Composable"] --> VM["ViewModel / state holder"]
+  end
+  subgraph D["Domain layer — pure Kotlin, no Android"]
+    UC["UseCase"] --> RI["Repository interface"]
+  end
+  subgraph DA["Data layer"]
+    RImpl["Repository impl"] --> R["Remote source"]
+    RImpl --> L["Local source"]
+  end
+  VM --> UC
+  RImpl -. "implements" .-> RI
+  </pre>
+  <p>The arrow that matters is the dotted one: the data layer depends on the domain's interface, not the reverse. That single inversion is 80% of the value — the domain becomes a pure-Kotlin module with no Android dependency, so its tests run in milliseconds on the JVM and it can be shared with KMP later.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:140px">Claim</th><th>Reality at scale</th></tr></thead>
+    <tbody>
+      <tr><td>"It's testable"</td><td>True, and the biggest real win: a pure domain module has no Robolectric, no emulator, no <code>Dispatchers.Main</code>.</td></tr>
+      <tr><td>"You can swap the database"</td><td>Almost never happens. Do not justify the architecture with this; interviewers have heard it and it signals repetition rather than experience.</td></tr>
+      <tr><td>"It scales to large teams"</td><td>True — but the mechanism is <em>module boundaries and ownership</em>, not the layer names. You can get most of it with fewer layers.</td></tr>
+      <tr><td>"Use cases document the domain"</td><td>True when they contain logic. False when they are one-line pass-throughs, which is what most codebases actually have.</td></tr>
+      <tr><td>Cost</td><td>3–5 files per feature slice, a mapping tax, and a genuine onboarding cost. On a 6-screen app with 3 engineers, this is a net negative.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — ceremony with no content</div><pre>class GetUserUseCase(private val repo: UserRepository) {
+    suspend operator fun invoke(id: String) = repo.getUser(id)
+}
+class GetOrdersUseCase(private val repo: OrderRepository) {
+    suspend operator fun invoke() = repo.getOrders()
+}
+// 40 of these. Each adds a file, a DI binding,
+// a test that asserts delegation, and zero logic.</pre>
+      <p class="why">Pure indirection. It also actively hides the real dependency graph, because the ViewModel now depends on 8 use cases instead of 2 repositories.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — a use case that earns its existence</div><pre>/**
+ * Combines entitlement, local drafts and remote orders,
+ * applies the refund-eligibility rules, and is used by
+ * three screens.
+ */
+class GetRefundableOrdersUseCase(
+    private val orders: OrderRepository,
+    private val entitlements: EntitlementRepository,
+    private val clock: Clock,
+) {
+    operator fun invoke(): Flow&lt;List&lt;RefundableOrder&gt;&gt; =
+        combine(orders.all(), entitlements.current()) { os, ent -&gt;
+            os.filter { it.isRefundable(ent, clock.now()) }
+              .map { it.toRefundable() }
+        }
+}
+// Elsewhere, the ViewModel calls repo.getUser(id) directly.</pre>
+      <p class="why">The rule: introduce a use case when there is <em>logic</em>, <em>multiple sources</em>, or <em>reuse</em>. Otherwise let the state holder call the repository. Mixing both is not inconsistency — it is proportion.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 50</span>MVVM vs MVI</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Dimension</th><th>MVVM (state + methods)</th><th>MVI (state + intents + reducer)</th></tr></thead>
+    <tbody>
+      <tr><td>State</td><td>One or several observable properties</td><td>Exactly one immutable state object</td></tr>
+      <tr><td>Input</td><td>Public methods on the ViewModel</td><td>A single <code>onIntent(Intent)</code> entry point</td></tr>
+      <tr><td>Traceability</td><td>Harder — state can change from anywhere in the class</td><td>Excellent — every transition passes through one reducer; trivially loggable and replayable</td></tr>
+      <tr><td>Boilerplate</td><td>Low</td><td>Higher: intent, reducer, effect types per screen</td></tr>
+      <tr><td>Testing</td><td>Call method, assert state</td><td>Feed intents, assert state sequence; reducer testable as a pure function</td></tr>
+      <tr><td>Best for</td><td>Most screens: forms, detail pages, settings</td><td>Complex flows with many interacting inputs — checkout, editors, multi-step wizards, anything with concurrency</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>The trap:</strong> "MVI is better" is not an answer. Both put immutable state in a holder and drive UI unidirectionally; the difference is whether input is funnelled through one channel. That funnel buys traceability and costs boilerplate. On a settings screen it is pure cost; on a checkout flow with payment, address validation and inventory reservation racing each other, the replayable transition log is worth the files.</p>
+
+  <div class="code1"><div class="lab">A pragmatic middle ground used by many large apps</div><pre>class CheckoutViewModel(...) : ViewModel() {
+
+    private val _state = MutableStateFlow(CheckoutUiState())
+    val state: StateFlow&lt;CheckoutUiState&gt; = _state.asStateFlow()
+
+    private val _events = Channel&lt;CheckoutEvent&gt;(Channel.BUFFERED)
+    val events = _events.receiveAsFlow()
+
+    // Single input channel (MVI), but no ceremony reducer class:
+    fun onIntent(intent: CheckoutIntent) {
+        when (intent) {
+            is SetAddress  -&gt; _state.update { it.copy(address = intent.a, error = null) }
+            is Submit      -&gt; submit()
+            is Retry       -&gt; submit()
+        }
+    }
+
+    private fun submit() = viewModelScope.launch {
+        _state.update { it.copy(isSubmitting = true) }
+        submitOrder(_state.value.toRequest())
+            .onSuccess { _events.send(CheckoutEvent.Done(it.orderId)) }
+            .onFailure { e -&gt; _state.update {
+                it.copy(isSubmitting = false, error = e.toCheckoutError()) } }
+    }
+}</pre></div>
+
+  <h2><span class="cn">Chapter 51</span>UI state modelling and state machines</h2>
+  <p>Where do loading and error live? The question is really "is this state or an event?" — and the answer follows a rule: <strong>if it should still be true after rotation, it is state; if it should happen exactly once, it is an event.</strong></p>
+  <ul>
+    <li>A full-screen loading spinner: state.</li>
+    <li>A validation error under a field: state.</li>
+    <li>A one-off snackbar or navigation: event.</li>
+    <li>A retryable network failure that replaces the content: state (with a retry intent), because it must survive rotation.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — global loading flag over a partial screen</div><pre>data class ProfileUi(
+    val isLoading: Boolean,
+    val user: User?,
+    val orders: List&lt;Order&gt;?,
+    val error: String?,
+)
+// User loads in 80ms, orders in 2s.
+// The whole screen spins for 2s, and the
+// "user is null but not loading" case is unrepresentable-but-reachable.</pre>
+      <p class="why">One flag for several independent sources produces either an over-eager spinner or a lying UI.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — per-section state</div><pre>@Immutable
+data class ProfileUi(
+    val header: Section&lt;User&gt; = Section.Loading,
+    val orders: Section&lt;ImmutableList&lt;Order&gt;&gt; = Section.Loading,
+)
+
+sealed interface Section&lt;out T&gt; {
+    data object Loading : Section&lt;Nothing&gt;
+    data class Ready&lt;T&gt;(val value: T) : Section&lt;T&gt;
+    data class Failed(val retryable: Boolean) : Section&lt;Nothing&gt;
+}</pre>
+      <p class="why">Each region renders independently, partial failure degrades gracefully, and every combination in the type is legal. This is what "progressive rendering" means concretely.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 52</span>The repository under pressure</h2>
+  <div class="q">
+    <p class="qt">Interview question · the most-asked architecture question</p>
+    <p class="qh">"Should repositories expose <code>Flow</code> or <code>suspend</code> functions?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>It looks like a style question and is actually a question about where your app's reactive boundary sits — a decision that is expensive to reverse.</p>
+    <h4>Short answer</h4>
+    <p>Expose <code>Flow</code> when the caller must observe change over time; <code>suspend</code> when it is a request/response. Most repositories legitimately have both.</p>
+    <h4>Deep explanation <span class="chip c4">L4</span></h4>
+    <p>"The decision criterion is the <em>source of truth</em>. If the data lives in a local store that other actors write to — a sync worker, a push handler, another screen — then a one-shot read is a bug waiting to happen: the screen shows a value that is already stale and has no way to learn. That is a <code>Flow</code>, backed by an observable query.</p>
+    <p>If the operation is a command — submit an order, refresh, upload — it is a <code>suspend</code> function returning a result. Modelling a command as a <code>Flow</code> means the caller must remember to terminate it, and errors become emissions instead of exceptions, which loses structured concurrency's error propagation.</p>
+    <p>Three failure modes I'd call out. First, cold flows without sharing: five screens collecting <code>repo.user()</code> means five network calls, because <code>Flow</code> is cold — you need <code>shareIn</code>/<code>stateIn</code> at the right level or a single-source-of-truth database. Second, <code>Flow&lt;Result&lt;T&gt;&gt;</code> everywhere: it leaks the transport's failure vocabulary into the domain and makes every operator awkward; prefer a domain error type, and only where partial failure is a real state. Third, ownership: a <code>Flow</code> exposed from a singleton repository and shared with an app scope will keep running when no screen is watching unless <code>SharingStarted</code> says otherwise.</p>
+    <p>At the organisational level, this needs to be a written rule, not per-engineer taste. In a 300-module codebase, inconsistency here means every new engineer relitigates it in review. I'd write it as: <em>observable state → Flow; commands → suspend; never Flow for one-shot reads; sharing configured at the ViewModel unless the data is genuinely app-wide</em> — and back it with a lint rule where it can be mechanically checked."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"Where should the loading state be produced?" — Not in the repository. The repository emits data or throws; the state holder converts that into <code>Loading</code>/<code>Ready</code>/<code>Failed</code>, because loading is a UI concept.</li>
+      <li>"Should the repository return domain models or entities?" — Domain models. Leaking Room entities means <code>@Entity</code> annotations and column names reach the UI, and a schema migration becomes a UI change.</li>
+      <li>"How do you test a repository that exposes Flow?" — Turbine, with a fake DAO backed by <code>MutableStateFlow</code> so you can drive emissions deterministically, and an injected dispatcher.</li>
+      <li>"What if the backend has no push and data can only change by polling?" — Then the observability is manufactured, and you should be honest about it: a <code>Flow</code> that polls hides a cost, so make the refresh explicit and let the caller decide the cadence.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 53</span>Architecting a 200-screen application</h2>
+  <p>This is a common Staff design prompt. The trap is designing the <em>screen</em> architecture; what is being asked is the <em>system</em> that lets 40 teams build 200 screens without collision.</p>
+
+  <pre class="mermaid">
+flowchart TD
+  App[":app — assembly only"] --> F1[":feature:cart"]
+  App --> F2[":feature:search"]
+  App --> F3[":feature:orders"]
+  F1 --> NavApi[":core:navigation-api"]
+  F2 --> NavApi
+  F3 --> NavApi
+  F1 --> DomC[":core:domain-cart"]
+  F3 --> DomO[":core:domain-orders"]
+  DomC --> DataC[":core:data-cart"]
+  DomO --> DataO[":core:data-orders"]
+  DataC --> Net[":core:network"]
+  DataO --> Net
+  DataC --> DB[":core:database"]
+  DataO --> DB
+  F1 --> DS[":core:designsystem"]
+  F2 --> DS
+  F3 --> DS
+  </pre>
+
+  <p>Seven decisions that constitute the answer:</p>
+  <ol>
+    <li><strong>Feature modules never depend on each other.</strong> Cross-feature navigation goes through a route contract in <code>:core:navigation-api</code>; the implementation is wired in <code>:app</code>. This is the single most important rule and the one most often broken.</li>
+    <li><strong>One screen contract</strong> (Route/Screen/UiState/Intent), generated from a template, so a reviewer moving between features recognises the shape instantly.</li>
+    <li><strong>Data ownership is explicit.</strong> Each domain concept has exactly one owning module and one source of truth. Two modules caching entitlement is the bug class from Part I.</li>
+    <li><strong>The design system is a real module with an API review.</strong> Otherwise 200 screens produce 200 buttons.</li>
+    <li><strong>Boundaries are enforced mechanically</strong> — dependency rules in the build logic, a lint rule for illegal imports. A documented rule is a suggestion.</li>
+    <li><strong>State scoping is defined:</strong> screen state in a ViewModel; flow state in a nav-graph ViewModel; app state in a repository with a single source of truth. No activity-scoped shared ViewModels.</li>
+    <li><strong>The paved road is a generator.</strong> New feature = one command producing module, DI wiring, screen contract, tests and a CI entry. Consistency at 200 screens comes from defaults, not review.</li>
+  </ol>
+
+  <h2><span class="cn">Chapter 54</span>Multi-surface architecture</h2>
+  <p>Foldables, tablets, Wear, TV and Auto do not need parallel apps; they need a shared domain and a deliberately separate presentation layer.</p>
+  <ul>
+    <li><strong>Share:</strong> domain, data, sync, auth. These are surface-independent and duplicating them causes divergent bugs.</li>
+    <li><strong>Do not share:</strong> navigation topology, layout, input model. A list-detail on a foldable is a two-pane layout with one back-stack entry; on a phone it is two entries. Forcing one navigation model onto both produces the "back button does the wrong thing on a tablet" bug.</li>
+    <li><strong>Drive layout from window size classes</strong>, never from <code>isTablet</code> booleans or screen-width dp thresholds sprinkled through the code — a folding phone changes class at runtime, and a resizable window on a large screen changes it continuously.</li>
+    <li><strong>Test the transition, not just the states.</strong> Fold/unfold mid-flow is where state loss appears, because it is a configuration change plus a layout topology change at once.</li>
+  </ul>
+
+  <div class="panel">
+    <h4>Part VII rapid recall</h4>
+    <ul>
+      <li>Justify a boundary by the change it isolates; collapse boundaries whose mappers are field-for-field copies.</li>
+      <li>Clean Architecture's real win is a pure-Kotlin domain with millisecond tests, not database swappability.</li>
+      <li>Introduce a use case for logic, multiple sources, or reuse — not per repository method.</li>
+      <li>MVI buys traceability and costs boilerplate; use it where transitions are complex, not everywhere.</li>
+      <li>State survives rotation; events happen once. Per-section state beats one global loading flag.</li>
+      <li>Flow for observable data, suspend for commands; configure sharing or pay N calls for N collectors.</li>
+      <li>Features must not depend on features; route contracts plus assembly in <code>:app</code>.</li>
+      <li>Multi-surface: share domain, diverge navigation; drive layout from window size classes.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p6" data-p="p6"><span class="k">Previous</span><span class="t">← Part VI</span></a><a class="r" href="#p8" data-p="p8"><span class="k">Next</span><span class="t">Part VIII — Modularization →</span></a></div>
+</section>

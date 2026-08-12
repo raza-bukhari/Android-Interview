@@ -1,0 +1,179 @@
+<section class="page" id="p23">
+  <header class="phead">
+    <p class="eyebrow">Part XXIII</p>
+    <h1>Behavioral &amp; <em>Leadership</em></h1>
+    <p class="deck">Where Staff offers are most often lost. Not because candidates lack the experience, but because they narrate projects instead of demonstrating judgment, scope and agency.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 148</span>How Staff behavioral rounds are evaluated</h2>
+  <p>Interviewers are filling in a rubric with roughly these rows. Everything you say is being sorted into them.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:140px">Signal</th><th>Weak evidence</th><th>Strong evidence</th></tr></thead>
+    <tbody>
+      <tr><td>Scope</td><td>"My team's feature"</td><td>Work spanning teams, or a system nobody owned</td></tr>
+      <tr><td>Agency</td><td>"My manager asked me to"</td><td>"I noticed, I proposed, I got it funded"</td></tr>
+      <tr><td>Judgment</td><td>Describes what happened</td><td>Explains the options considered and why this one</td></tr>
+      <tr><td>Impact</td><td>"It went well"</td><td>A number, and how it was measured</td></tr>
+      <tr><td>Self-awareness</td><td>Failures are other people's</td><td>Names their own contribution to the failure specifically</td></tr>
+      <tr><td>Collaboration</td><td>"I convinced them"</td><td>"I understood their constraint and changed my proposal"</td></tr>
+    </tbody>
+  </table></div>
+
+  <h4>STAR, adapted for technical leadership</h4>
+  <p>Standard STAR under-serves Staff answers because it has no slot for the two things being assessed: the alternatives you weighed and the mechanism you left behind. Use <strong>STAR-DL</strong>:</p>
+  <div class="code1"><div class="lab">Answer skeleton — roughly 3 minutes spoken</div><pre>Situation   20s   Context and stakes. Include the scale: users, teams, money.
+Task        15s   What was actually yours, and why it was ambiguous or hard.
+Action      60s   What YOU did. Include the alternatives you rejected.
+Result      30s   A measured outcome. A number, with how you measured it.
+Decision    20s   The key judgment call and what would have changed it.
+Learning    20s   What you do differently now — and where you have applied it since.</pre></div>
+  <div class="note"><span class="lab">The "I vs we" calibration</span><p>Say "we" for the work and "I" for the decisions. Candidates who say "I" throughout read as credit-takers; candidates who say "we" throughout leave interviewers unable to score them and default to a lower level. The fix is one explicit sentence per story: <em>"The part that was specifically mine was…"</em></p></div>
+
+  <h2><span class="cn">Chapter 149</span>Ten questions, fully graded</h2>
+
+  <div class="q">
+    <p class="qt">Question 1 · influence</p>
+    <p class="qh">"Tell me about a time you influenced a technical decision without authority."</p>
+    <h4>What is being evaluated</h4>
+    <p>Whether you can move an organisation, and whether your mechanism was evidence or seniority. Interviewers are listening for a <em>prototype, data, or an absorbed cost</em> — not "I explained why it was better."</p>
+    <div class="levels">
+      <div class="lv"><b><span class="chip c2">L2</span></b><div>"I explained the benefits in a meeting and eventually the team agreed." No mechanism, no cost, no measurement.</div></div>
+      <div class="lv"><b><span class="chip c3">L3</span></b><div>Adds a concrete technical argument and a successful outcome for their own team.</div></div>
+      <div class="lv"><b><span class="chip c4">L4</span></b><div>Multi-team scope, a prototype or data as the argument, the other team's constraint understood and accommodated, a measured result, and the mechanism that made it durable.</div></div>
+      <div class="lv"><b><span class="chip c5">L5</span></b><div>Adds that they changed the org's default so the next such decision does not need them.</div></div>
+    </div>
+    <h4>Model answer <span class="chip c4">L4</span></h4>
+    <p>"Our four Android teams each had their own networking setup — different retry behaviour, different error mapping. It caused a real incident: one team's client retried 500s indefinitely and amplified a backend outage from a blip into twenty minutes.</p>
+    <p>Nobody owned it and I had no authority over those teams. I did three things. I quantified the cost: I pulled six months of incidents and found four with a networking root cause, plus roughly a day per team per quarter maintaining their own client. Then I built the shared client as a working prototype and migrated <em>one</em> team's screens myself — I absorbed the cost so their first experience was reviewing a PR, not doing a project. And I asked each team lead what they actually needed; the payments team had a hard requirement about not retrying certain calls, which my first design got wrong. Changing it for them was what turned a skeptic into an advocate.</p>
+    <p>Results: all four teams migrated in two quarters, zero networking-root-cause incidents in the following six months, and the retry-storm class was eliminated because the shared client has jittered backoff and a circuit breaker by default.</p>
+    <p>The judgment call was absorbing the migration cost for the pilot. It was expensive — about three weeks of my time — but a mandate without absorbed cost produces compliance theatre. What I would do differently: I should have written the ADR at the start rather than after the second team adopted it. Two engineers independently re-litigated decisions I had already made and I had nothing to point at."</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 2 · failure</p>
+    <p class="qh">"Tell me about a significant technical failure you were responsible for."</p>
+    <h4>What is being evaluated</h4>
+    <p>Self-awareness and whether you fixed the <em>system</em> or just the bug. The two failure modes: choosing a trivially small failure (reads as evasive), and blaming circumstances.</p>
+    <h4>Red flags interviewers note</h4>
+    <ul>
+      <li>The failure is really someone else's, told from your perspective.</li>
+      <li>"We didn't have enough time" as the root cause with no examination of your own choices.</li>
+      <li>A failure so minor it demonstrates nothing.</li>
+      <li>No systemic fix — the story ends with "we fixed the bug."</li>
+    </ul>
+    <h4>Model answer <span class="chip c4">L4</span></h4>
+    <p>"I designed an offline sync engine that lost user data for about 200 people. The bug: I advanced the sync cursor outside the transaction that applied the changes, so a crash between the two silently skipped a page of updates. It was invisible — no crash, no error — and we found it three weeks later from a support pattern, not from monitoring.</p>
+    <p>Immediate response: I disabled sync via remote config for affected users, wrote a reconciliation job that rebuilt state from the server, and personally reviewed the affected accounts. We contacted every user.</p>
+    <p>My contribution to the failure was more than the one-line ordering mistake. I had tested sync on the happy path and on total failure, but not on <em>partial</em> failure — and partial failure is the defining characteristic of the problem domain. I knew that, and I still didn't build the fault-injection harness because we were behind schedule.</p>
+    <p>The systemic fixes: a fault-injection test harness that kills the process at every await point in the sync loop, which is now used by two other teams; a sync-lag metric with alerting, so silent data problems become visible within an hour instead of three weeks; and a review checklist item for any cursor-advancing code. The last one is the cheapest and has caught it twice since.</p>
+    <p>What I carry from it: for anything involving data integrity, I now design the observability before the feature. If a failure can be silent, it will be silent for weeks."</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 3 · conflict</p>
+    <p class="qh">"Tell me about a technical disagreement with another senior engineer. How did it resolve?"</p>
+    <h4>What is being evaluated</h4>
+    <p>Whether you can disagree productively and, critically, whether you can lose well. Interviewers are wary of Staff candidates who cannot be overruled.</p>
+    <h4>Strong answer shape</h4>
+    <p>Include: the substance of both positions stated fairly (if you cannot state theirs convincingly, you did not understand it); how you tried to make it empirical rather than a matter of taste; how the decision was actually made; and — the highest-value element — <strong>a case where you were wrong or where you disagreed and committed.</strong></p>
+    <p>"Our staff iOS engineer wanted a shared KMP sync layer; I thought the coordination cost exceeded the benefit. We were both arguing from experience with nothing to test. We agreed on a time-boxed spike with success criteria set in advance — iOS build time impact and whether iOS engineers could still work independently. The spike showed a build-time cost we could live with, and I was wrong about the independence concern because the interface boundary was cleaner than I expected. We adopted it for the domain layer only. What I would keep from that: turning a disagreement into a falsifiable experiment with agreed criteria, <em>before</em> either of us was publicly committed to a position, is what let me change my mind without it being a defeat."</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 4 · saying no</p>
+    <p class="qh">"Tell me about a time you said no to a senior stakeholder."</p>
+    <h4>What is being evaluated</h4>
+    <p>Whether you can defend engineering constraints in business language rather than by asserting technical authority. "I told them it wasn't possible" is a weak answer; so is "I did it anyway and we suffered."</p>
+    <h4>The shape that works</h4>
+    <p>Never say no to the <em>goal</em>; say no to the <em>plan</em>, and bring an alternative. "We can't ship the full redesign in six weeks with an acceptable crash rate. Here are three options: the full scope in ten weeks; the top two screens in six with the rest following; or six weeks at full scope with a quality risk I'd estimate at roughly double our current crash rate for a month. My recommendation is the second, and here's why." That converts a refusal into a decision the stakeholder owns, with the trade-off explicit.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 5 · mentorship</p>
+    <p class="qh">"Tell me about someone you mentored who wasn't improving."</p>
+    <h4>What is being evaluated</h4>
+    <p>Whether you diagnose rather than repeat. Also whether you know the boundary between mentoring and managing — a Staff engineer who tries to performance-manage someone is overstepping, and one who ignores a real performance problem is under-serving the team.</p>
+    <p><strong>Strong elements:</strong> distinguishing skill gaps from motivation gaps from context gaps (a strong engineer failing because they were given ambiguous work with no context is common and frequently misread as a skill problem); changing the approach when the first one did not work; involving their manager appropriately; and an honest outcome — including one where the person left, if that is what happened.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 6 · incident leadership</p>
+    <p class="qh">"Walk me through an incident you led."</p>
+    <p><strong>What is being evaluated:</strong> composure, structure and whether you fixed the class. Structure the answer as: detection (how long, and why not faster), triage and severity call, mitigation (with the reasoning for choosing it over alternatives), communication cadence and to whom, resolution, postmortem, and the systemic changes that shipped.</p>
+    <p><strong>The Staff differentiator:</strong> spending as much time on "why did it take 90 minutes to detect" as on the bug itself. Detection time is almost always the more valuable fix, and most candidates skip it entirely.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 7 · prioritisation</p>
+    <p class="qh">"You have three critical things and capacity for one. How do you decide?"</p>
+    <p><strong>Framework worth stating:</strong> reversibility (which decision closes doors), blast radius (who is affected if it goes wrong), decay (which gets more expensive if delayed), and dependency (which unblocks others). Then — the part that distinguishes levels — <strong>make the trade-off visible to the people affected rather than silently absorbing it.</strong> A Staff engineer who quietly drops the third thing has created a surprise; one who says "we are not doing X this quarter, here is the risk we are accepting" has made a decision.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 8 · technical debt vs deadlines</p>
+    <p class="qh">"How do you balance engineering quality with business deadlines?"</p>
+    <p><strong>Weak answer:</strong> "Quality always comes first." It is untrue and signals inflexibility.</p>
+    <p><strong>Strong answer:</strong> distinguish the quality that is negotiable from the quality that is not. Non-negotiable: data integrity, security, anything irreversible, anything that would require a user-visible migration to fix later. Negotiable: test depth on low-risk paths, refactoring, abstraction, polish. Then make the shortcut explicit — recorded, with an owner and an expiry — so it is a decision rather than a slide. "I take on debt deliberately and visibly; what I refuse is undocumented debt, because that is the kind that compounds silently."</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 9 · ambiguity</p>
+    <p class="qh">"Tell me about a time you worked on something with no clear requirements or owner."</p>
+    <p><strong>What is being evaluated:</strong> this is the single most Staff-specific question in the set. Ambiguity tolerance is the defining behavioural trait of the level.</p>
+    <p><strong>Strong shape:</strong> you produced the missing definition (a written proposal, a scoping document, a prototype that made the choice concrete), you got it ratified by the people who would have to live with it, and you did it without waiting for permission. The best versions include the fact that the problem was not initially recognised as a problem by anyone else.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Question 10 · hiring and calibration</p>
+    <p class="qh">"How do you calibrate when interviewing? Tell me about a hire you got wrong."</p>
+    <p><strong>Increasingly asked at Staff level</strong>, because you will be a significant fraction of the hiring signal. Strong elements: a consistent rubric rather than a vibe; awareness of specific biases (recency, similarity, over-weighting communication polish over substance); writing feedback with evidence rather than conclusions; and being willing to be the dissenting voice in a debrief.</p>
+    <p>For the "got wrong" half, the most useful answers describe a <em>false negative</em> you later recognised — because everyone can describe a bad hire, and recognising that your bar was miscalibrated in the other direction shows more self-examination.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 150</span>Forty more questions, grouped</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:140px">Theme</th><th>Questions</th></tr></thead>
+    <tbody>
+      <tr><td>Ownership</td><td>A system you owned that nobody assigned · something you deprecated · a process you created · work you inherited in a bad state · something you chose not to fix.</td></tr>
+      <tr><td>Influence</td><td>Changing a team's mind with data · a proposal that was rejected · building consensus across orgs · convincing product to fund engineering work · a standard you established.</td></tr>
+      <tr><td>Conflict</td><td>Disagreeing with your manager · two teams blocked on each other · a peer whose code you consistently had to reject · escalating appropriately · a decision you disagreed with and committed to.</td></tr>
+      <tr><td>Failure</td><td>A project that failed · a design you got wrong · an estimate you missed badly · an incident you caused · a hire or a mentee that did not work.</td></tr>
+      <tr><td>Ambiguity</td><td>Starting with no requirements · conflicting stakeholder goals · deciding with insufficient data · a problem nobody had noticed · killing your own project.</td></tr>
+      <tr><td>Mentorship</td><td>Growing someone to the next level · giving hard feedback · delegating something you wanted to do · improving a team's review culture · onboarding at scale.</td></tr>
+      <tr><td>Strategy</td><td>A multi-quarter technical plan · a build-vs-buy decision · a bet that did not pay off · aligning technical and product roadmaps · what you would change about your current architecture.</td></tr>
+      <tr><td>Operating</td><td>On-call improvements you made · a postmortem you ran · a metric you introduced · reducing a chronic source of toil · a rollout you halted.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 151</span>Building your story portfolio</h2>
+  <p>You need <strong>eight stories</strong>, not forty. Each strong story answers four or five questions with a shift of emphasis. Build the matrix explicitly:</p>
+  <div class="code1"><div class="lab">Portfolio coverage — fill this in before any loop</div><pre>Story                         Scope  Influence Conflict Failure Ambiguity Metric
+1. Shared networking client     ✓✓      ✓✓        ✓                ✓        ✓
+2. Sync data-loss incident      ✓                  ✓      ✓✓                ✓✓
+3. Modularization programme     ✓✓      ✓         ✓               ✓✓        ✓✓
+4. KMP disagreement                     ✓         ✓✓              ✓
+5. Mentee who plateaued                 ✓         ✓       ✓
+6. Said no to a redesign date           ✓✓        ✓✓              ✓         ✓
+7. Startup performance push     ✓       ✓                         ✓        ✓✓
+8. Deprecating a loved system   ✓✓      ✓✓        ✓✓      ✓
+                                                 ↑ every column needs 2+</pre></div>
+  <p><strong>Extracting the numbers.</strong> Most candidates have the impact but not the figure. Before the loop, dig: crash-free rate before and after, build time, incident counts, support ticket volume, conversion or retention deltas, engineer-hours saved. An approximate honest number ("roughly a day per team per quarter, from asking the four leads") is far stronger than no number, and interviewers do not expect audited precision.</p>
+  <p><strong>Rehearsal.</strong> Out loud, timed, to three minutes. The gap between a story you can recall and one you can <em>tell</em> is enormous under pressure. Record yourself once — it is unpleasant and it is the fastest correction available.</p>
+  <p><strong>If a story is weak,</strong> do not inflate it. "This one didn't have the impact I hoped, and here's what I misjudged" scores better than an exaggerated outcome, because interviewers cross-check details across rounds and inconsistency is fatal.</p>
+
+  <div class="panel">
+    <h4>Part XXIII rapid recall</h4>
+    <ul>
+      <li>Scope, agency, judgment, impact, self-awareness, collaboration — everything you say is sorted into these.</li>
+      <li>STAR-DL: add the Decision and the Learning; that is where Staff signal lives.</li>
+      <li>"We" for the work, "I" for the decisions — say one explicit sentence isolating your part.</li>
+      <li>Influence stories need a mechanism: prototype, data, or absorbed cost.</li>
+      <li>Failure stories need a systemic fix, not just a bug fix.</li>
+      <li>Never say no to the goal; say no to the plan and bring options with costs.</li>
+      <li>Eight stories mapped across every theme, each with a real number.</li>
+      <li>Rehearse aloud, timed. Do not inflate — interviewers cross-check across rounds.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p22" data-p="p22"><span class="k">Previous</span><span class="t">← Part XXII</span></a><a class="r" href="#p24" data-p="p24"><span class="k">Next</span><span class="t">Part XXIV — Org-Scale Architecture →</span></a></div>
+</section>

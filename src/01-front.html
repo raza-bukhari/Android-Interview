@@ -1,0 +1,174 @@
+<section class="page on" id="home">
+  <header class="phead">
+    <p class="eyebrow">Complete edition · 2026.1</p>
+    <h1>The Staff Android Interview: <em>depth, trade-offs, and scale</em></h1>
+    <p class="deck">A book-length preparation guide for engineers interviewing at Staff, Senior Staff, Principal, and Mobile Architect level — organised around the thing that actually separates those loops from a Senior loop: not harder recall, but defensible judgment under scale, failure, and organisational constraint.</p>
+    <div class="stats">
+      <div class="stat"><b>30</b><span>Parts</span></div>
+      <div class="stat"><b>200+</b><span>Graded questions</span></div>
+      <div class="stat"><b>120+</b><span>Code comparisons</span></div>
+      <div class="stat"><b>18</b><span>System designs</span></div>
+      <div class="stat"><b>12</b><span>Mock loops</span></div>
+    </div>
+  </header>
+
+  <h2>How to use this book</h2>
+  <p>This volume is written for an engineer with 8–12+ years of experience who already ships production Android. It assumes you know what a <code>ViewModel</code> is. It does not assume you can defend, in front of a skeptical hiring committee, why a 200-screen app should or should not have one per screen.</p>
+  <p>Three habits make the material work:</p>
+  <ul>
+    <li><strong>Answer at a level, deliberately.</strong> Major questions are graded L1–L5. Write your own answer before reading the model one; the gap is your study plan.</li>
+    <li><strong>Chase the second and third follow-up.</strong> Staff loops rarely fail on the opening question. They fail three questions deep, when the candidate runs out of mechanism and starts repeating vocabulary.</li>
+    <li><strong>Run the thirteen lenses.</strong> Correctness, reliability, scalability, performance, maintainability, testability, security, observability, operability, cost, developer experience, business impact, organisational impact.</li>
+  </ul>
+
+  <h2>The answer quality rubric</h2>
+  <p>Every graded question uses the same ordinal, cumulative scale. An L4 answer contains everything in L3 and adds a dimension.</p>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="min-width:104px">Level</th><th style="min-width:140px">Character</th><th>What moves an answer up to this level</th></tr></thead>
+      <tbody>
+        <tr><td><span class="chip c1">L1</span> Weak</td><td>Definitional recall</td><td>Repeats documentation. Correct vocabulary, no mechanism. Stops at "it's lifecycle-aware."</td></tr>
+        <tr><td><span class="chip c2">L2</span> Acceptable</td><td>Correct but bounded</td><td>Accurate happy-path mechanism plus a concrete usage. Still framed as "the right way", no alternatives.</td></tr>
+        <tr><td><span class="chip c3">L3</span> Senior</td><td>Practically grounded</td><td>Production experience: what went wrong, how it was debugged, what the fix cost. Names an alternative and why it lost.</td></tr>
+        <tr><td><span class="chip c4">L4</span> Staff</td><td>Systemic</td><td>Behaviour under concurrency, failure and 10× load; explicit decision criteria; testability and observability; cost to 100 engineers; the condition that inverts the choice.</td></tr>
+        <tr><td><span class="chip c5">L5</span> Principal</td><td>Strategic</td><td>Reversibility and option value, organisational and hiring consequences, migration and deprecation path, measurable success criteria, cost in money and headcount, how it is governed over years.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h4>Worked calibration — "Why would you expose <code>Flow</code> from a repository?"</h4>
+    <div class="levels">
+      <div class="lv"><b><span class="chip c1">L1</span></b><div>"It's reactive and lifecycle-aware, and works well with coroutines."</div></div>
+      <div class="lv"><b><span class="chip c2">L2</span></b><div>Adds: <code>Flow</code> is cold and re-executes per collector; a suspend function is the better fit for a one-shot read.</div></div>
+      <div class="lv"><b><span class="chip c3">L3</span></b><div>Adds the real case: a Room-backed observable query so a sync worker's writes reach the UI without manual invalidation; <code>stateIn</code> with <code>WhileSubscribed(5_000)</code> to survive rotation without leaking a collector.</div></div>
+      <div class="lv"><b><span class="chip c4">L4</span></b><div>Adds: who owns the subscription and therefore cancellation; conflation and backpressure for a high-rate location stream; whether <code>Flow&lt;Result&lt;T&gt;&gt;</code> leaks transport concerns into the domain; what five collectors of one upstream do and how <code>shareIn</code> changes the failure model; Turbine testing cost; and the written rule so 100 engineers don't each decide differently.</div></div>
+      <div class="lv"><b><span class="chip c5">L5</span></b><div>Adds: this is really a question about where the app's reactive boundary sits; making it reactive everywhere is a one-way door; the guidance shipped as a lint rule plus an ADR; the metric that proves it worked (screen-level state bugs, not stream counts); and the exit path if the team later adopts a sync-engine model.</div></div>
+    </div>
+  </div>
+
+  <h2>Complete contents</h2>
+  <div class="toclist">
+    <a href="#p1" data-p="p1"><span class="rn">Part I</span><span><span class="tt">The Staff Engineer Mindset</span><span class="td">What the level is, why strong Senior answers get down-levelled, the thirteen judgment lenses, influence without authority.</span></span></a>
+    <a href="#p2" data-p="p2"><span class="rn">Part II</span><span><span class="tt">Kotlin Mastery</span><span class="td">Type system, variance, inline and value classes, sealed hierarchies and binary compatibility, delegation, sequences, Java interop, DSL discipline.</span></span></a>
+    <a href="#p3" data-p="p3"><span class="rn">Part III</span><span><span class="tt">Coroutines, Flow &amp; Concurrency</span><span class="td">Structured concurrency, dispatchers, cancellation, supervision, mutexes and actors, cold vs hot streams, backpressure, sharing, deduplication and single-flight.</span></span></a>
+    <a href="#p4" data-p="p4"><span class="rn">Part IV</span><span><span class="tt">The Android Platform</span><span class="td">Binder and the process model, Looper and Choreographer, tasks and launch modes, process death, background restrictions, permissions, notifications and links.</span></span></a>
+    <a href="#p5" data-p="p5"><span class="rn">Part V</span><span><span class="tt">Jetpack in Depth</span><span class="td">ViewModel and state ownership, lifecycle collection, Room, DataStore, WorkManager, Paging, Navigation, dependency injection.</span></span></a>
+    <a href="#p6" data-p="p6"><span class="rn">Part VI</span><span><span class="tt">Jetpack Compose</span><span class="td">Slot table and snapshots, effects, stability and strong skipping, hoisting, the three phases, lazy layouts, recomposition debugging, semantics.</span></span></a>
+    <a href="#p7" data-p="p7"><span class="rn">Part VII</span><span><span class="tt">Android Architecture</span><span class="td">Boundaries, Clean Architecture honestly assessed, MVVM vs MVI, state machines, the repository under pressure, a 200-screen design, multi-surface.</span></span></a>
+    <a href="#p8" data-p="p8"><span class="rn">Part VIII</span><span><span class="tt">Modularization at Scale</span><span class="td">Module taxonomy, breaking cycles, build-graph performance, convention plugins, a 100-engineer worked exercise.</span></span></a>
+    <a href="#p9" data-p="p9"><span class="rn">Part IX</span><span><span class="tt">Networking</span><span class="td">Transport realities, REST vs GraphQL vs gRPC, OkHttp internals, single-flight token refresh, retries and idempotency, caching and connectivity.</span></span></a>
+    <a href="#p10" data-p="p10"><span class="rn">Part X</span><span><span class="tt">Storage &amp; Caching</span><span class="td">SQLite mechanics, schema and migrations, cache architecture and invalidation, media and large binaries.</span></span></a>
+    <a href="#p11" data-p="p11"><span class="rn">Part XI</span><span><span class="tt">Performance Engineering</span><span class="td">A methodology, startup, rendering and jank, ANRs, battery, app size, and running a performance programme.</span></span></a>
+    <a href="#p12" data-p="p12"><span class="rn">Part XII</span><span><span class="tt">Memory Management</span><span class="td">ART heap behaviour, leak topology, heap dump diagnosis, five leaks to find.</span></span></a>
+    <a href="#p13" data-p="p13"><span class="rn">Part XIII</span><span><span class="tt">Testing Strategy</span><span class="td">What not to test, fakes over mocks, coroutine and Flow testing, UI and screenshot tests, contract tests, org-scale strategy.</span></span></a>
+    <a href="#p14" data-p="p14"><span class="rn">Part XIV</span><span><span class="tt">Build Systems, CI/CD, Release</span><span class="td">Gradle mechanics, variants, cutting build time org-wide, pipelines and static analysis, release trains and rollback.</span></span></a>
+    <a href="#p15" data-p="p15"><span class="rn">Part XV</span><span><span class="tt">Security</span><span class="td">Threat modelling a hostile client, Keystore, OAuth2 and tokens, transport hardening, integrity and realistic expectations.</span></span></a>
+    <a href="#p16" data-p="p16"><span class="rn">Part XVI</span><span><span class="tt">Mobile System Design</span><span class="td">A repeatable framework, how it is scored, API contracts, and eighteen complete designs from chat to payments.</span></span></a>
+    <a href="#p17" data-p="p17"><span class="rn">Part XVII</span><span><span class="tt">Sync &amp; Distributed Concepts</span><span class="td">Local-first, delta sync, conflict resolution, idempotency, real-time transport, multi-device convergence.</span></span></a>
+    <a href="#p18" data-p="p18"><span class="rn">Part XVIII</span><span><span class="tt">Legacy Code &amp; Migration</span><span class="td">The case against rewrites, eight canonical Android migrations, debt as a portfolio, evaluating KMP.</span></span></a>
+    <a href="#p19" data-p="p19"><span class="rn">Part XIX</span><span><span class="tt">Production Incidents</span><span class="td">Mobile incident response, twelve investigated incidents, and observability that makes them survivable.</span></span></a>
+    <a href="#p20" data-p="p20"><span class="rn">Part XX</span><span><span class="tt">The Coding Interview</span><span class="td">How Staff coding rounds are scored, plus concurrency, systems and reactive problems with full Kotlin solutions.</span></span></a>
+    <a href="#p21" data-p="p21"><span class="rn">Part XXI</span><span><span class="tt">Code Review Interviews</span><span class="td">What a Staff review looks for, fifteen defective snippets with expert reviews, review as leadership.</span></span></a>
+    <a href="#p22" data-p="p22"><span class="rn">Part XXII</span><span><span class="tt">Architecture Review</span><span class="td">Ten broken architectures, a critique method, and migration plans that keep production running.</span></span></a>
+    <a href="#p23" data-p="p23"><span class="rn">Part XXIII</span><span><span class="tt">Behavioral &amp; Leadership</span><span class="td">How Staff behavioural rounds are scored, graded answers to the questions that decide offers, story portfolio construction.</span></span></a>
+    <a href="#p24" data-p="p24"><span class="rn">Part XXIV</span><span><span class="tt">Organization-Scale Architecture</span><span class="td">Governance without bottlenecks, funding change with no product value, measuring architecture, drift.</span></span></a>
+    <a href="#p25" data-p="p25"><span class="rn">Part XXV</span><span><span class="tt">Traps &amp; Trick Questions</span><span class="td">Questions where the confident conventional answer is wrong, and a reusable shape for answering with context.</span></span></a>
+    <a href="#p26" data-p="p26"><span class="rn">Part XXVI</span><span><span class="tt">Comparison Reference</span><span class="td">Head-to-head comparisons on fixed dimensions, and how to speak a table in ninety seconds.</span></span></a>
+    <a href="#p27" data-p="p27"><span class="rn">Part XXVII</span><span><span class="tt">Rapid Fire</span><span class="td">Questions banded by the answer length they deserve — ten seconds to three minutes.</span></span></a>
+    <a href="#p28" data-p="p28"><span class="rn">Part XXVIII</span><span><span class="tt">Mock Interview Loops</span><span class="td">Complete loops with interviewer scripts, follow-ups, model answers and filled-in scorecards.</span></span></a>
+    <a href="#p29" data-p="p29"><span class="rn">Part XXIX</span><span><span class="tt">Follow-Up Trees</span><span class="td">The three-level rule, a fully expanded offline-first tree, and fifty design follow-ups to expect.</span></span></a>
+    <a href="#p30" data-p="p30"><span class="rn">Part XXX</span><span><span class="tt">Cheat Sheets &amp; Checklists</span><span class="td">One-page compressions, 100 things to know, the lists you must answer cold, and the last 24 hours.</span></span></a>
+  </div>
+  <div class="pagenav"><span></span><a class="r" href="#matrix" data-p="matrix"><span class="k">Next</span><span class="t">Competency matrix →</span></a></div>
+</section>
+
+<section class="page" id="matrix">
+  <header class="phead">
+    <p class="eyebrow">Front matter</p>
+    <h1>Staff Engineer <em>competency matrix</em></h1>
+    <p class="deck">Loops are calibrated against a ladder, not a topic list. Read the columns horizontally: the same question, asked of three candidates, produces three materially different conversations. Most rejected Staff candidates give excellent Senior answers.</p>
+  </header>
+  <div class="tw">
+    <table>
+      <thead><tr><th style="min-width:145px">Dimension</th><th>Senior <span class="chip c3">L3</span></th><th>Staff <span class="chip c4">L4</span></th><th>Principal <span class="chip c5">L5</span></th></tr></thead>
+      <tbody>
+        <tr><td>Scope of impact</td><td>A feature or surface, delivered independently and correctly.</td><td>A system or domain spanning teams. Owns the seams.</td><td>The platform and multi-year direction, including what the org will not build.</td></tr>
+        <tr><td>Problem framing</td><td>Solves the problem as stated.</td><td>Interrogates it, surfaces the unstated constraint, sometimes redefines it.</td><td>Chooses which problems deserve the org's attention this year.</td></tr>
+        <tr><td>Technical depth</td><td>Knows the API and its correct usage.</td><td>Knows the mechanism, failure modes and cost model underneath.</td><td>Knows where the abstraction breaks at 10× and has the migration sketched.</td></tr>
+        <tr><td>Trade-offs</td><td>Names pros and cons.</td><td>Names decision criteria, weights them for this context, states what would change the answer.</td><td>Reasons about reversibility and option value: which doors are one-way.</td></tr>
+        <tr><td>Failure thinking</td><td>Handles the errors the API surfaces.</td><td>Designs for partial failure, retries, idempotency, degraded modes by default.</td><td>Designs blast radius: what fails, who notices, how fast, how the org recovers.</td></tr>
+        <tr><td>Scale reasoning</td><td>Optimises the hot path in front of them.</td><td>Reasons about 10× users, data, engineers and screens.</td><td>Reasons about cost, headcount and coordination, not just throughput.</td></tr>
+        <tr><td>Architecture</td><td>Applies the team's architecture consistently.</td><td>Defines it, its boundaries, and the mechanism that keeps it true.</td><td>Establishes governance that survives their departure without becoming a bottleneck.</td></tr>
+        <tr><td>Code &amp; review</td><td>Clean, tested code; reviews for correctness.</td><td>Reviews for boundary integrity, failure behaviour, and precedent.</td><td>Shapes what the org considers reviewable: standards, linters, defaults.</td></tr>
+        <tr><td>Testing posture</td><td>Writes good unit and UI tests.</td><td>Designs a strategy with an explicit cost/confidence budget and flake policy.</td><td>Ties test investment to release velocity and incident rate as measured outcomes.</td></tr>
+        <tr><td>Observability</td><td>Adds logging, reads crash reports.</td><td>Defines mobile SLIs and instruments before shipping.</td><td>Runs the app-health programme: budgets, alerting, telemetry cost, accountability.</td></tr>
+        <tr><td>Influence</td><td>Persuades their team through good work.</td><td>Builds cross-team consensus with written proposals, prototypes and data.</td><td>Changes org behaviour via strategy, councils and hiring.</td></tr>
+        <tr><td>Ambiguity</td><td>Asks for clarification, then executes.</td><td>Operates without an owner, produces the missing definition, gets it ratified.</td><td>Comfortable where there is no correct answer, only a defensible one — and commits.</td></tr>
+        <tr><td>Mentorship</td><td>Mentors one or two engineers.</td><td>Raises a team's level through review culture, docs and delegated ownership.</td><td>Builds mechanisms that grow Staff engineers without their involvement.</td></tr>
+        <tr><td>Business framing</td><td>Understands the feature's goal.</td><td>Connects decisions to retention, conversion, cost and time-to-market.</td><td>Negotiates roadmap and quality with executives in money and risk.</td></tr>
+        <tr><td>Incident behaviour</td><td>Fixes their team's bug quickly.</td><td>Runs the response and drives a blameless postmortem to closure.</td><td>Removes the class of incident and changes the systems that allowed it.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note"><span class="lab">Calibration signal</span><p>The most reliable Staff tell is <strong>unprompted constraint discovery</strong>: naming a constraint the interviewer did not mention, explaining why it dominates, and designing to it. The second is <strong>stating what would change your mind</strong>. Neither needs a whiteboard.</p></div>
+  <div class="pagenav"><a href="#home" data-p="home"><span class="k">Previous</span><span class="t">← Contents</span></a><a class="r" href="#roadmap" data-p="roadmap"><span class="k">Next</span><span class="t">Study roadmap →</span></a></div>
+</section>
+
+<section class="page" id="roadmap">
+  <header class="phead">
+    <p class="eyebrow">Front matter</p>
+    <h1>Study <em>roadmap</em></h1>
+    <p class="deck">Three tracks by available runway. All assume 8–12 hours a week and existing working knowledge of Android — this is preparation for a level, not a bootcamp.</p>
+  </header>
+
+  <h2>Track A — twelve weeks, full depth</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:96px">When</th><th style="min-width:180px">Focus</th><th>Coverage</th></tr></thead>
+    <tbody>
+      <tr><td>Weeks 1–2</td><td>Foundations and framing</td><td>Part I and the rubric. Self-assess against the matrix. Draft six STAR stories before touching technical material — most candidates over-prepare recall and under-prepare framing.</td></tr>
+      <tr><td>Weeks 3–4</td><td>Language and concurrency</td><td>Parts II and III, plus the concurrency problems in Part XX. The densest block; concurrency is where Staff candidates are most often caught because the failures only appear under load.</td></tr>
+      <tr><td>Weeks 5–6</td><td>Platform, Jetpack, Compose</td><td>Parts IV, V, VI. Internals rather than usage: aim to explain the mechanism behind every recommendation you make.</td></tr>
+      <tr><td>Weeks 7–8</td><td>Architecture and scale</td><td>Parts VII, VIII, XVIII, XXII, XXIV. Write two ADRs from the Part XXII prompts and have a peer critique them.</td></tr>
+      <tr><td>Weeks 9–10</td><td>System design intensive</td><td>Parts XVI, XVII, IX, X. Work eight designs on paper, timed at 45 minutes, before reading any model answer.</td></tr>
+      <tr><td>Week 11</td><td>Operations</td><td>Parts XI, XII, XIII, XIV, XV, XIX. The half that distinguishes engineers who ship from engineers who operate.</td></tr>
+      <tr><td>Week 12</td><td>Simulation</td><td>Parts XXVIII, XXVII, XXIII, XXV, XXX. Four full loops under time pressure with a peer as interviewer, then reference only.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Track B — four weeks, targeted</h2>
+  <p>Week 1: Parts I, III, VII. Week 2: Parts XVI and XVII, six designs. Week 3: Parts VI, XI, XIX, XXIV. Week 4: Parts XXVIII, XXIII, XXV, XXVII. Skip Parts II, V and XX unless self-assessment puts you below L3 there.</p>
+
+  <h2>Track C — one week, pre-onsite</h2>
+  <p>Day 1: rubric and Part I. Day 2: the Part XVI framework and three designs. Day 3: Parts III and VI, mechanism only. Day 4: Parts XXIV and XXII. Day 5: Part XXIII, eight stories rehearsed aloud. Day 6: two mock loops. Day 7: Part XXX and the 24-hour checklist. Nothing new after day 6.</p>
+
+  <h2>Dependencies</h2>
+  <p>The parts are not strictly sequential. This is what genuinely depends on what, so you can reorder around your weak spots without reading into a prerequisite you have not covered.</p>
+  <pre class="mermaid">
+flowchart LR
+  I["I · Mindset"] --> VII["VII · Architecture"]
+  I --> XXIII["XXIII · Behavioral"]
+  I --> XXIV["XXIV · Org scale"]
+  II["II · Kotlin"] --> III["III · Coroutines"]
+  III --> VI["VI · Compose"]
+  III --> IX["IX · Networking"]
+  IV["IV · Platform"] --> V["V · Jetpack"]
+  V --> VI
+  V --> VII
+  VII --> VIII["VIII · Modules"]
+  VII --> XVI["XVI · System design"]
+  IX --> XVI
+  X["X · Storage"] --> XVII["XVII · Sync"]
+  XVI --> XVII
+  VI --> XI["XI · Performance"]
+  XI --> XII["XII · Memory"]
+  XI --> XIX["XIX · Incidents"]
+  VIII --> XIV["XIV · Build/CI"]
+  XIII["XIII · Testing"] --> XIV
+  XVI --> XXVIII["XXVIII · Mocks"]
+  XXIII --> XXVIII
+  XXIV --> XXVIII
+  </pre>
+  <div class="note"><span class="lab">Non-negotiable</span><p>Reading model answers is the least valuable activity in this book. <strong>Produce an answer first, out loud, timed</strong>, then read. The gap between what you recognise and what you can generate under pressure is the entire difficulty of a Staff loop.</p></div>
+  <div class="pagenav"><a href="#matrix" data-p="matrix"><span class="k">Previous</span><span class="t">← Competency matrix</span></a><a class="r" href="#p1" data-p="p1"><span class="k">Next</span><span class="t">Part I — Mindset →</span></a></div>
+</section>

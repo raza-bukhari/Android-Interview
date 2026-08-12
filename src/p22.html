@@ -1,0 +1,146 @@
+<section class="page" id="p22">
+  <header class="phead">
+    <p class="eyebrow">Part XXII</p>
+    <h1>Architecture <em>Review</em></h1>
+    <p class="deck">Ten flawed architectures to critique, with the migration plan that keeps production running — because "this is wrong" is a Senior answer and "here is the sequenced path out, and what it costs" is a Staff one.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 145</span>A critique method</h2>
+  <p>Use the same five steps every time. It stops you from listing preferences and forces you to distinguish real problems from taste.</p>
+  <ol>
+    <li><strong>What breaks, concretely?</strong> Name a failure scenario, not a principle. "This violates SRP" is weak; "two teams editing this file conflict every sprint, and last quarter it caused three revert-and-reland cycles" is not.</li>
+    <li><strong>Who pays, and how often?</strong> Every build, every new hire, every incident, every feature.</li>
+    <li><strong>What would you change?</strong> The target state, in one diagram.</li>
+    <li><strong>How do you get there without stopping?</strong> Sequence, first increment, rollback.</li>
+    <li><strong>What is the trade-off of your own proposal?</strong> If you cannot name one, you have not thought about it and the interviewer will notice.</li>
+  </ol>
+
+  <h2><span class="cn">Chapter 146</span>Ten broken architectures</h2>
+
+  <div class="q">
+    <p class="qt">Architecture 1</p>
+    <p class="qh">"Everything lives inside the ViewModel"</p>
+    <p><strong>What breaks:</strong> business rules cannot be tested without Android or a coroutine harness; the same rule is re-implemented in three ViewModels and drifts; a 2,000-line file is a permanent merge-conflict zone; and the rules cannot be reused by a Worker or a widget.</p>
+    <p><strong>Change:</strong> extract pure domain logic into plain Kotlin classes with no framework dependency. Not a use case per method — one per genuine rule cluster (Part VII, Chapter 49).</p>
+    <p><strong>Migration:</strong> purely additive and safe. Extract the logic behind existing tests, delegate from the ViewModel, verify behaviour is unchanged. Ship per screen. No flag needed because there is no behaviour change — which is exactly why it is the right first step in any larger cleanup.</p>
+    <p><strong>Trade-off:</strong> more files, and a rule about where logic belongs that new engineers must learn.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 2</p>
+    <p class="qh">"The repository exposes UI state"</p>
+    <div class="code1"><div class="lab">The smell</div><pre>interface ProductRepository {
+    fun observe(id: String): Flow&lt;ProductUiState&gt;   // Loading / Error / Ready
+}</pre></div>
+    <p><strong>What breaks:</strong> the data layer now owns presentation decisions, so two screens wanting different loading behaviour cannot share it; the repository cannot be reused by a Worker (which has no UI state); errors are pre-formatted, often already localised, so testing asserts on strings; and every UI change requires a data-layer change.</p>
+    <p><strong>Change:</strong> the repository emits domain data or throws domain errors. The state holder maps that into <code>Loading</code>/<code>Ready</code>/<code>Failed</code>, because loading is a UI concept — it describes the <em>view's</em> relationship to the data, not the data.</p>
+    <p><strong>Migration:</strong> add the domain-typed method alongside the existing one, migrate screens one at a time, delete the old method when the last caller is gone. Standard strangler.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 3</p>
+    <p class="qh">"Every feature depends on :core, and :core has 200 files"</p>
+    <p><strong>What breaks:</strong> any change to <code>:core</code> recompiles the whole app — the single biggest build-time cost in most large Android codebases; every team edits it, so it is a permanent conflict surface; it has no owner; and it accumulates unrelated things because "shared" is not a criterion.</p>
+    <p><strong>Change:</strong> split by <em>capability</em>, not by layer: <code>:core:network</code>, <code>:core:database</code>, <code>:core:designsystem</code>, <code>:core:analytics-api</code>. Each with one owner. Anything used by fewer than three modules moves to its actual consumer.</p>
+    <p><strong>Migration:</strong> measure first — which <code>:core</code> files actually change often, and which are on the critical build path. Extract the highest-churn, widest-dependency pieces first. Do it incrementally; a big-bang split of <code>:core</code> conflicts with every in-flight PR in the company.</p>
+    <p><strong>Trade-off:</strong> more modules, a longer configuration phase, and more build files — which is why convention plugins come first.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 4</p>
+    <p class="qh">"All modules depend on :app"</p>
+    <p><strong>What breaks:</strong> this inverts the dependency direction, so nothing can be built or tested without the whole application. Feature modules cannot have isolated tests, cannot be built in parallel, and the module graph provides no benefit at all — you have the build cost of modularization with none of the isolation.</p>
+    <p><strong>Usually caused by:</strong> shared resources, a navigation constant, or a DI component living in <code>:app</code>.</p>
+    <p><strong>Change:</strong> invert. <code>:app</code> depends on everything and contains only assembly. Whatever features need from <code>:app</code> moves into a contract module they can depend on (Part VIII, Chapter 56).</p>
+    <p><strong>Migration:</strong> extract the shared pieces one at a time, lowest-dependency first. This one is usually mechanical but wide; do it with codemods and land it in a quiet week.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 5</p>
+    <p class="qh">"Every screen has its own database"</p>
+    <p><strong>What breaks:</strong> multiple sources of truth for the same entity. Screen A updates the user, screen B still shows the old one; an offline write queue exists in three places; migrations must be written N times; and the disk cost multiplies.</p>
+    <p><strong>Change:</strong> one database, one entity per concept, one owning module. Screens observe queries; they do not own storage.</p>
+    <p><strong>Migration:</strong> genuinely risky, because it touches user data. Sequence: (1) designate the canonical store; (2) dual-write to it while still reading from the old ones; (3) migrate reads screen by screen behind flags; (4) verify with a consistency metric comparing the stores; (5) delete the old stores and their data only after a full release cycle at 100%. Never delete data in the same release that stops writing it — you need a rollback path.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 6</p>
+    <p class="qh">"One gigantic shared module contains everything"</p>
+    <p>The endpoint of taking "don't repeat yourself" as an unconditional rule. <strong>What breaks:</strong> everything recompiles on any change; ownership is diffuse; unrelated concepts are coupled through it; and it grows monotonically because adding to it is always the path of least resistance.</p>
+    <p><strong>Change and the counter-intuitive part:</strong> some duplication is <em>correct</em>. Two verticals with similar-but-independent models should each own theirs; forcing a shared model couples their release schedules and produces a type that satisfies neither. State this explicitly in an interview — interviewers expect a DRY reflex and reward the nuance.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 7</p>
+    <p class="qh">"Business logic in composables"</p>
+    <p><strong>What breaks:</strong> logic runs inside recomposition, so it executes an unpredictable number of times — a side effect there fires repeatedly; it cannot be unit-tested without a Compose test harness; and it cannot be reused by any non-UI caller.</p>
+    <p><strong>Change:</strong> composables read state and emit events. Anything conditional beyond presentation moves to the state holder. The heuristic worth quoting: <em>if you would want to write a unit test for it, it does not belong in a composable.</em></p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 8</p>
+    <p class="qh">"Singletons hold mutable app state"</p>
+    <p><strong>What breaks:</strong> after process death the singleton is reconstructed empty while the UI assumes it is populated — presenting as a spurious logout or an empty screen (Part IV, Chapter 27). It is also globally mutable from anywhere, untestable without reset hooks, and prone to races.</p>
+    <p><strong>Change:</strong> state that matters is persisted and observable; the singleton becomes a cache in front of a store, not the store itself. Test: <em>if this value disappeared right now, would the app misbehave?</em> If yes, it must be persisted.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 9</p>
+    <p class="qh">"A domain layer that only forwards calls"</p>
+    <p><strong>What breaks:</strong> pure cost. Forty use-case classes, forty DI bindings, forty tests asserting delegation, and a dependency graph that is harder to read because the real dependencies are hidden behind indirection.</p>
+    <p><strong>Change:</strong> delete the pass-throughs; keep use cases with real logic. This is the rare architecture review where the correct recommendation is <em>less</em> architecture — and being willing to say so is a genuine signal, because most candidates only ever propose adding structure.</p>
+    <p><strong>Trade-off, stated honestly:</strong> mixed conventions (some screens call repositories, some call use cases) confuse newcomers. Mitigate with a written rule — "use cases exist for logic, multiple sources, or reuse" — rather than by restoring uniform ceremony.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Architecture 10</p>
+    <p class="qh">"DI graph with runtime cycles and unclear scoping"</p>
+    <p><strong>What breaks:</strong> a cycle resolved lazily produces initialisation-order bugs that appear only on certain navigation paths; scope mismatches silently create two instances of something intended to be single (so a cache exists twice and neither is coherent); and startup time grows because eagerly-scoped objects are constructed before they are needed.</p>
+    <p><strong>Change:</strong> a compile-time-validated graph (Part V, Chapter 38); explicit scoping rules per object class; and a startup trace to catch anything expensive constructed eagerly.</p>
+    <p><strong>Diagnostic worth mentioning:</strong> log or assert instance identity for objects that must be singletons. "Why is my cache empty?" is frequently two instances rather than a caching bug, and teams lose days to it.</p>
+  </div>
+
+  <h2><span class="cn">Chapter 147</span>Writing the ADR that makes it stick</h2>
+  <p>A critique that ends in a conversation changes nothing. The artefact that changes behaviour is a short written decision, and interviewers sometimes ask you to produce one verbally.</p>
+  <div class="code1"><div class="lab">ADR-014 · Repositories expose domain types, not UI state</div><pre>Status      Accepted · 2026-03-14 · Owner: @mobile-arch · Review: 2027-Q1
+
+Context     Three repositories emit Flow&lt;XUiState&gt;. Two screens now need
+            different loading behaviour and cannot share them. Worker code
+            duplicates the data path. Error strings are localised in the
+            data layer, so tests assert on user-facing copy.
+
+Decision    Repositories expose domain models and throw/emit domain errors.
+            Mapping to UI state happens in the state holder.
+
+Alternatives
+  Keep as is           — rejected: blocks reuse, couples layers.
+  UI state in domain   — rejected: same coupling, moved.
+  Per-screen repos     — rejected: multiplies sources of truth (see ADR-009).
+
+Consequences
+  + Repositories reusable by Workers and widgets; faster tests.
+  − One mapping layer per screen; ~15 files to migrate.
+  Enforcement: lint rule bans `UiState` types in :core:data-* signatures.
+
+Reversal    If mapping proves to be pure duplication across &gt;80% of screens,
+            revisit with a shared mapper rather than by re-coupling layers.
+
+Migration   New code follows immediately. Existing: additive method, migrate
+            per screen, delete old method when callers reach zero. ~2 sprints,
+            no flag required (no behaviour change).</pre></div>
+  <p>The two sections that make it real are <strong>Enforcement</strong> and <strong>Reversal</strong>. Without enforcement it is a preference; without a reversal condition it is dogma. Both are what a Staff interviewer is listening for.</p>
+
+  <div class="panel">
+    <h4>Part XXII rapid recall</h4>
+    <ul>
+      <li>Critique with concrete failure scenarios and who pays, not with principles.</li>
+      <li>Always propose the migration sequence, first increment, and rollback — not just the target.</li>
+      <li>Name the trade-off of your own proposal or the critique reads as ideology.</li>
+      <li>Sometimes the right answer is less architecture; be willing to say it.</li>
+      <li>Never delete data in the same release that stops writing it.</li>
+      <li>An ADR needs enforcement and a reversal condition, or nothing changes.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p21" data-p="p21"><span class="k">Previous</span><span class="t">← Part XXI</span></a><a class="r" href="#p23" data-p="p23"><span class="k">Next</span><span class="t">Part XXIII — Behavioral →</span></a></div>
+</section>

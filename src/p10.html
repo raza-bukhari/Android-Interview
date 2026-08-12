@@ -1,0 +1,171 @@
+<section class="page" id="p10">
+  <header class="phead">
+    <p class="eyebrow">Part X</p>
+    <h1>Storage &amp; <em>Caching</em></h1>
+    <p class="deck">SQLite behaviour underneath Room, and cache design treated as an architectural decision rather than a utility class.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 66</span>SQLite mechanics that matter</h2>
+  <ul>
+    <li><strong>WAL mode</strong> (Room's default) lets readers proceed during a write. Without it, a write blocks every reader — a classic source of jank when a sync worker writes while a list scrolls. There is still only <em>one</em> writer at a time.</li>
+    <li><strong>Transactions are the unit of durability and speed.</strong> 1,000 individual inserts mean 1,000 fsyncs; the same inserts in one transaction mean one. This is routinely a 50–100× difference and is the correct answer to "the initial sync takes 40 seconds."</li>
+    <li><strong>Index or scan.</strong> Without an index, a <code>WHERE</code> is a full table scan. With 200 rows nobody notices; with 200,000 on a low-end device it is seconds.</li>
+    <li><strong>Room's observable queries invalidate per table</strong>, so a write to <em>any</em> row of a watched table re-runs the query. Watching a hot table with an unbounded query is a self-inflicted CPU load.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — per-row inserts and an unindexed filter</div><pre>suspend fun saveAll(items: List&lt;Item&gt;) {
+    items.forEach { dao.insert(it) }        // 5,000 transactions
+}
+
+@Query("SELECT * FROM items WHERE category = :c ORDER BY updated DESC")
+fun byCategory(c: String): Flow&lt;List&lt;Item&gt;&gt;   // full scan + sort, unbounded</pre>
+      <p class="why">Initial sync takes tens of seconds and the query scans the table on every write to it. Both are invisible on a small dev dataset.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — batch, index, bound</div><pre>@Insert(onConflict = OnConflictStrategy.REPLACE)
+suspend fun insertAll(items: List&lt;Item&gt;)     // one transaction
+
+@Entity(indices = [Index(value = ["category", "updated"])])
+data class ItemEntity(...)
+
+@Query("SELECT * FROM items WHERE category = :c " +
+       "ORDER BY updated DESC LIMIT :limit")
+fun byCategory(c: String, limit: Int = 100): Flow&lt;List&lt;Item&gt;&gt;</pre>
+      <p class="why">The composite index covers both the filter and the sort, so SQLite avoids a temporary b-tree. Verify with <code>EXPLAIN QUERY PLAN</code> — "SCAN TABLE" means no index was used, "SEARCH TABLE … USING INDEX" means it was.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 67</span>Schema design and migrations</h2>
+  <p>Migrations are permanent public API: users skip releases, so version 3 must be able to reach version 12. Every shipped version is a path you own forever.</p>
+
+  <div class="code1"><div class="lab">The migration discipline that prevents data-loss incidents</div><pre>// 1. Commit the exported schema JSON — it is the contract.
+room { schemaDirectory("$projectDir/schemas") }
+
+// 2. Test EVERY adjacent pair, plus a full-chain run.
+@Test fun migrate_8_to_9() {
+    helper.createDatabase(TEST_DB, 8).apply {
+        execSQL("INSERT INTO messages VALUES ('m1','hello',1700000000)")
+        close()
+    }
+    val db = helper.runMigrationsAndValidate(TEST_DB, 9, true, MIGRATION_8_9)
+    db.query("SELECT read FROM messages WHERE id='m1'").use {
+        it.moveToFirst()
+        assertEquals(0, it.getInt(0))         // default applied
+    }
+}
+
+@Test fun migrate_all_the_way() =
+    helper.runMigrationsAndValidate(TEST_DB, LATEST, true, *ALL_MIGRATIONS)</pre></div>
+
+  <div class="note"><span class="lab">When destructive migration is defensible</span><p>Only for a pure cache with no user-authored data and no pending write queue, and even then guard it: if the database also holds an offline outbox, destructive migration silently deletes writes the user believes were saved. A useful rule to state in an interview: <em>destructive migration is allowed only in modules that contain no data the user could not regenerate by pulling to refresh.</em></p></div>
+
+  <h2><span class="cn">Chapter 68</span>Cache architecture</h2>
+  <p>"Should we cache?" is the wrong question. The real questions are: <em>what is the source of truth, what staleness is acceptable, and how does a stale entry get corrected?</em> A cache without an answer to the third is a bug generator.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:140px">Invalidation</th><th>Mechanism</th><th>Fits / fails</th></tr></thead>
+    <tbody>
+      <tr><td>TTL</td><td>Entry expires after N seconds</td><td>Simple and predictable. Fails when data changes unpredictably — the user sees stale content for the full TTL and cannot fix it.</td></tr>
+      <tr><td>Write-through</td><td>Every local write updates the cache</td><td>Correct for data this client owns. Cannot know about other clients' writes.</td></tr>
+      <tr><td>Event-driven</td><td>Push/socket invalidates keys</td><td>Freshest, and the right answer for multi-device. Requires backend support and a fallback for missed events.</td></tr>
+      <tr><td>Version/ETag</td><td>Revalidate cheaply, 304 if unchanged</td><td>Saves bandwidth, not round trips. Good pairing with a longer TTL.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — the three-cache problem</div><pre>// Memory map in the repository (never bounded, never invalidated)
+// + OkHttp disk cache (its own TTL from server headers)
+// + Room (written on some paths, not others)
+//
+// Result: pull-to-refresh updates two of the three,
+// and which value the UI shows depends on which
+// screen the user opened first.</pre>
+      <p class="why">Three sources of truth means an unreproducible class of "wrong data" bugs that only appear in specific navigation orders.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — one source of truth, tiers with distinct jobs</div><pre>// Truth:      Room (survives process death, offline-capable)
+// Bandwidth:  OkHttp cache (revalidation only)
+// Speed:      in-memory, bounded, derived from Room
+
+class ProductRepository(
+    private val dao: ProductDao,
+    private val api: ProductApi,
+) {
+    // UI observes only this.
+    fun product(id: String): Flow&lt;Product&gt; =
+        dao.observe(id).map { it.toDomain() }
+
+    suspend fun refresh(id: String) {
+        dao.upsert(api.product(id).toEntity())   // network writes to truth
+    }
+}</pre>
+      <p class="why">The rule that makes this work: <strong>the network never returns data to the UI directly.</strong> It writes to the store, and the UI observes the store. Every consistency bug in the "avoid" column disappears structurally.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 69</span>Media, files, and bitmap memory</h2>
+  <p>Bitmap arithmetic is a favourite quick interview probe because it is exact: a bitmap costs <code>width × height × bytes-per-pixel</code>. In <code>ARGB_8888</code> that is 4 bytes per pixel, so a 4000×3000 photo is <strong>48 MB</strong> decoded — several times a typical app's entire heap budget, from one image.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — decoding at source resolution</div><pre>val bmp = BitmapFactory.decodeFile(path)     // 48 MB for a 12MP photo
+imageView.setImageBitmap(bmp)
+
+AsyncImage(model = url)                       // unbounded in a list</pre>
+      <p class="why">A handful of these produce <code>OutOfMemoryError</code> on mid-tier devices, and the crash lands on whatever allocation happens to be next — so the stack trace usually blames innocent code.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — decode to display size</div><pre>// Coil/Glide size the request to the target automatically,
+// but be explicit in lists where the target is known:
+AsyncImage(
+    model = ImageRequest.Builder(ctx)
+        .data(url)
+        .size(320, 180)              // decode dimensions
+        .build(),
+    modifier = Modifier.size(160.dp, 90.dp),
+)
+
+// Manual decode: two passes.
+val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+BitmapFactory.decodeFile(path, opts)
+opts.inSampleSize = calculateInSampleSize(opts, 320, 180)
+opts.inJustDecodeBounds = false
+val bmp = BitmapFactory.decodeFile(path, opts)   // ~0.2 MB</pre>
+      <p class="why">Also consider <code>RGB_565</code> (half the memory) for opaque thumbnails, and <code>HARDWARE</code> bitmaps where you never read pixels back — they live outside the Java heap.</p></div>
+  </div>
+
+  <h4>Disk budget as a designed constraint</h4>
+  <p>An app that caches media without a quota eventually gets uninstalled for "using 4 GB". The Staff-level position: give every disk cache an explicit budget, an eviction policy (LRU by access time), and a response to <code>onTrimMemory</code>/low-storage broadcasts. Then measure the cache-hit rate — if a 500 MB cache and a 100 MB cache have the same hit rate, you are spending the user's storage for nothing, and that is an argument you can take to a product review with data.</p>
+
+  <div class="q">
+    <p class="qt">Interview question · synthesis</p>
+    <p class="qh">"Design the storage layer for an app that must work fully offline for a week."</p>
+    <h4>Requirements to pin first</h4>
+    <p>What data must be available offline versus merely nice to have? Can the user <em>write</em> offline, and if so which operations? How much storage may we consume? What is the acceptable staleness for each data class? Is the data sensitive enough to require encryption at rest? Answers change the design more than any technology choice.</p>
+    <h4>Model answer <span class="chip c4">L4</span></h4>
+    <p>"Room as the single source of truth, with three data classes handled differently.</p>
+    <ul>
+      <li><strong>Reference data</strong> (catalogue, config): synced on a schedule, TTL-based, safe to evict and re-fetch. Bounded by a row budget with LRU eviction so a week offline does not grow unboundedly.</li>
+      <li><strong>User data</strong> (their orders, documents): never evicted while the user is signed in; this is the data whose absence makes the app useless offline.</li>
+      <li><strong>Pending writes</strong> (the outbox): a durable queue table with an idempotency key, attempt count, and a terminal-failure state. Never destructively migrated, never cleared by a cache purge — the two mistakes that cause silent data loss.</li>
+    </ul>
+    <p>Schema-wise, the outbox is the interesting part: <code>(id, op_type, payload, idempotency_key, created_at, attempts, last_error, state)</code>. State is a real enum — pending, in-flight, failed-retryable, failed-permanent — because a permanently-failed write needs to surface to the user rather than retry forever.</p>
+    <p>For media, a separate file cache with its own quota, keyed by content hash, with the database holding only paths — you do not want a 200 MB blob inside SQLite.</p>
+    <p>Failure modes I'd design for explicitly: <strong>database corruption</strong> (detect on open, recreate reference data, but never silently discard the outbox — surface it); <strong>storage full</strong> (writes fail; the outbox must degrade gracefully and tell the user, not crash); and <strong>logout with a non-empty outbox</strong>, which needs a product decision — block logout, warn, or discard. Nobody thinks of that one until it happens.</p>
+    <p>On encryption: if the data is sensitive, SQLCipher with a Keystore-held key, accepting a measurable performance cost — roughly 5–15% on queries — and the operational reality that a lost key means unrecoverable data. That is a decision to make deliberately, not by default."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"How do you know a week of offline data fits?" — Measure per-user row and byte growth in production telemetry, extrapolate at p95, and set the quota from that with headroom. Guessing is how you discover it on low-storage devices.</li>
+      <li>"What happens when the outbox and server disagree after a week?" — This is Part XVII: conflict resolution, per-field merge policy, and surfacing genuine conflicts to the user rather than silently picking a winner.</li>
+      <li>"How do you test a week offline?" — A fake clock plus a seeded database at realistic volume, run in CI; plus a manual soak on a real device with airplane mode. Volume matters — every offline bug I have seen appears only at scale.</li>
+    </ol>
+  </div>
+
+  <div class="panel">
+    <h4>Part X rapid recall</h4>
+    <ul>
+      <li>WAL allows concurrent readers with one writer; batch inserts in a single transaction for 50–100× speedups.</li>
+      <li>Verify indexes with <code>EXPLAIN QUERY PLAN</code>; "SCAN TABLE" means you have none.</li>
+      <li>Room observable queries invalidate per table — bound them with <code>LIMIT</code> and indexes.</li>
+      <li>Every shipped schema version needs a tested path forward, forever.</li>
+      <li>Destructive migration is only defensible where no user-authored data or outbox exists.</li>
+      <li>One source of truth; the network writes to the store, the UI observes the store.</li>
+      <li>Bitmap cost = w × h × 4 bytes; always decode to display size.</li>
+      <li>Every disk cache needs a quota, an eviction policy, and a measured hit rate.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p9" data-p="p9"><span class="k">Previous</span><span class="t">← Part IX</span></a><a class="r" href="#p11" data-p="p11"><span class="k">Next</span><span class="t">Part XI — Performance →</span></a></div>
+</section>

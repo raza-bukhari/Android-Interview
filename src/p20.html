@@ -1,0 +1,326 @@
+<section class="page" id="p20">
+  <header class="phead">
+    <p class="eyebrow">Part XX</p>
+    <h1>The Coding <em>Interview</em></h1>
+    <p class="deck">Weighted toward the concurrency and systems problems that actually appear in Staff Android loops rather than generic puzzles. Every solution is production-shaped: cancellable, testable, and honest about its limits.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 131</span>How Staff coding rounds are scored</h2>
+  <p>A correct answer can still fail the round. Interviewers score the process, roughly in this order:</p>
+  <ol>
+    <li><strong>Clarification.</strong> Bounded or unbounded? Thread-safe? What is the eviction policy? Silence here reads as an engineer who codes before understanding.</li>
+    <li><strong>API before implementation.</strong> Write the signatures first and ask whether they are right. This is the single highest-signal habit in a Staff coding round.</li>
+    <li><strong>Reasoning aloud about concurrency.</strong> "Two callers hit this line simultaneously — what happens?" said unprompted.</li>
+    <li><strong>Edge cases named before being asked.</strong> Empty input, cancellation mid-flight, failure of the underlying operation, capacity zero.</li>
+    <li><strong>Testing.</strong> What you would test, and how you would make it deterministic.</li>
+    <li><strong>Complexity and trade-offs</strong>, including what you would change in production.</li>
+  </ol>
+  <div class="note"><span class="lab">The Staff differentiator</span><p>Senior candidates implement the thing. Staff candidates implement the thing and then say: "this is correct but it allocates on every access, so under a scroll I'd instead…", or "this is fine for hundreds of entries; at hundreds of thousands I'd change the data structure because…". Volunteering the limits of your own solution is the strongest signal available in this round.</p></div>
+
+  <h2><span class="cn">Chapter 132</span>Problem: thread-safe LRU cache</h2>
+  <p><strong>Requirements to establish:</strong> bounded by count or by size? Accessed from multiple threads? Do we need TTL? Must reads be lock-free? For this version: bounded by count, thread-safe, O(1) get and put.</p>
+  <div class="code1"><div class="lab">Solution</div><pre>class LruCache&lt;K : Any, V : Any&gt;(private val maxSize: Int) {
+    init { require(maxSize &gt; 0) { "maxSize must be positive" } }
+
+    // accessOrder = true makes iteration order = access order,
+    // so the eldest entry is the least recently *used*, not inserted.
+    private val map = object : LinkedHashMap&lt;K, V&gt;(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry&lt;K, V&gt;) =
+            size &gt; maxSize
+    }
+    private val lock = Any()
+
+    fun get(key: K): V? = synchronized(lock) { map[key] }
+
+    fun put(key: K, value: V): V? = synchronized(lock) { map.put(key, value) }
+
+    fun remove(key: K): V? = synchronized(lock) { map.remove(key) }
+
+    val size: Int get() = synchronized(lock) { map.size }
+}</pre></div>
+  <p><strong>Why <code>get</code> must also be synchronised</strong> — the question interviewers ask to check depth: with <code>accessOrder = true</code>, a read <em>mutates</em> the linked list. An unsynchronised get can corrupt the structure or throw <code>ConcurrentModificationException</code>. Candidates who synchronise only writes have a subtle, intermittent bug.</p>
+  <p><strong>Complexity:</strong> O(1) for both, with lock contention as the practical bottleneck. <strong>Follow-ups and answers:</strong> "Make reads concurrent" — segment the map, or accept approximate LRU (Caffeine's approach: buffer access records and replay them in batches). "Bound by bytes" — supply a size function and evict in a loop rather than by count. "Add TTL" — store the insert time and treat expired entries as absent on read, plus a periodic sweep so expired entries do not occupy capacity indefinitely.</p>
+
+  <h2><span class="cn">Chapter 133</span>Problem: concurrent request deduplicator</h2>
+  <p><strong>The scenario:</strong> five composables ask for the same user simultaneously on a cold start. You want one network call, five results, and correct cancellation semantics.</p>
+  <div class="code1"><div class="lab">Solution — with the cancellation subtlety that gets asked about</div><pre>class RequestDeduplicator&lt;K : Any, V&gt;(
+    private val scope: CoroutineScope,       // shared, NOT a caller's scope
+) {
+    private val mutex = Mutex()
+    private val inFlight = mutableMapOf&lt;K, Deferred&lt;V&gt;&gt;()
+
+    suspend fun execute(key: K, block: suspend () -&gt; V): V {
+        val deferred = mutex.withLock {
+            inFlight[key]?.takeIf { it.isActive }
+                ?: scope.async {
+                    try { block() }
+                    finally { mutex.withLock { inFlight.remove(key) } }
+                }.also { inFlight[key] = it }
+        }
+        return deferred.await()
+    }
+}</pre></div>
+  <p><strong>The design decision to articulate:</strong> the work runs in a <em>shared</em> scope, not the first caller's. If it ran in the first caller's scope, that caller navigating away would cancel the request for the other four — a genuinely nasty production bug, because it only appears when the first subscriber leaves early. The cost of the shared scope is that the work continues even if <em>every</em> caller leaves; if that matters, add reference counting and cancel when the count reaches zero, but say why you did it.</p>
+  <p><strong>Edge cases:</strong> a failure must remove the entry so the next caller retries rather than awaiting a permanently-failed <code>Deferred</code> (the <code>finally</code> handles it); <code>isActive</code> guards against a completed-but-not-yet-removed entry; and each caller's own cancellation only cancels its <code>await</code>, which is exactly what you want.</p>
+  <p><strong>Tests:</strong> launch five concurrent calls with a <code>TestDispatcher</code>, assert the block ran once and all five got the value; cancel the first caller and assert the others still complete; make the block throw and assert the next call re-executes.</p>
+
+  <h2><span class="cn">Chapter 134</span>Problem: debounce and throttle as Flow operators</h2>
+  <div class="code1"><div class="lab">Implementing debounce yourself — the mechanism interviewers want</div><pre>fun &lt;T&gt; Flow&lt;T&gt;.debounceManual(timeoutMs: Long): Flow&lt;T&gt; = channelFlow {
+    var job: Job? = null
+    collect { value -&gt;
+        job?.cancel()                       // supersede the pending emission
+        job = launch {
+            delay(timeoutMs)
+            send(value)                     // only if nothing arrived meanwhile
+        }
+    }
+    job?.join()                             // let the last one through
+}
+
+// Throttle-first: emit immediately, then ignore for a window.
+fun &lt;T&gt; Flow&lt;T&gt;.throttleFirst(windowMs: Long): Flow&lt;T&gt; = flow {
+    var lastEmit = 0L
+    collect { value -&gt;
+        val now = currentCoroutineContext()[TestTimeSource]?.now() ?: System.currentTimeMillis()
+        if (now - lastEmit &gt;= windowMs) { lastEmit = now; emit(value) }
+    }
+}</pre></div>
+  <p><strong>The distinction that gets asked:</strong> debounce waits for silence (right for search-as-you-type — you want the final query); throttle-first emits immediately then suppresses (right for a button that must not double-fire — you want the <em>first</em> event, and debounce would add latency to every tap). Choosing the wrong one produces either a laggy search or a double-submitted order.</p>
+  <p><strong>The <code>job?.join()</code> line</strong> is what makes the trailing value survive when the upstream completes — omitting it silently drops the last query, which is the classic bug in hand-rolled debounce.</p>
+
+  <h2><span class="cn">Chapter 135</span>Problem: rate limiter (token bucket)</h2>
+  <div class="code1"><div class="lab">Suspending token bucket — client-side protection for your own backend</div><pre>class TokenBucket(
+    private val capacity: Int,
+    private val refillPerSecond: Double,
+    private val clock: () -&gt; Long = System::nanoTime,
+) {
+    private val mutex = Mutex()
+    private var tokens = capacity.toDouble()
+    private var last = clock()
+
+    /** Suspends until a token is available. Cancellable. */
+    suspend fun acquire() {
+        while (true) {
+            val waitMs = mutex.withLock {
+                refill()
+                if (tokens &gt;= 1.0) { tokens -= 1.0; return }
+                ((1.0 - tokens) / refillPerSecond * 1000).toLong().coerceAtLeast(1)
+            }
+            delay(waitMs)                   // outside the lock — important
+        }
+    }
+
+    private fun refill() {
+        val now = clock()
+        val elapsedSec = (now - last) / 1_000_000_000.0
+        if (elapsedSec &lt;= 0) return
+        tokens = min(capacity.toDouble(), tokens + elapsedSec * refillPerSecond)
+        last = now
+    }
+}</pre></div>
+  <p><strong>Two details that separate levels:</strong> <code>delay</code> is called <em>outside</em> the lock — holding a mutex across a delay serialises every waiter and destroys throughput; and the clock is injected, so the test uses virtual time instead of sleeping. <strong>Follow-up:</strong> "Why token bucket over a fixed window?" — a fixed window allows a double-rate burst across the boundary; token bucket permits a controlled burst up to capacity and then a smooth rate, which is what you actually want for API politeness.</p>
+
+  <h2><span class="cn">Chapter 136</span>Problem: offline sync queue</h2>
+  <p>The most representative Staff Android coding problem, because it touches persistence, concurrency, retry and idempotency at once.</p>
+  <div class="code1"><div class="lab">Solution sketch — the shape matters more than the syntax</div><pre>@Entity(tableName = "outbox")
+data class Operation(
+    @PrimaryKey val id: String,          // == idempotency key
+    val type: String,
+    val payload: String,
+    val createdAt: Long,
+    val attempts: Int = 0,
+    val nextAttemptAt: Long = 0,
+    val state: State = State.Pending,    // Pending | InFlight | Failed | Done
+    val lastError: String? = null,
+)
+
+class SyncQueue(
+    private val dao: OutboxDao,
+    private val api: Api,
+    private val clock: Clock,
+) {
+    /** Drains in FIFO order. Stops on the first retryable failure so
+     *  ordering is preserved — critical when operations are dependent. */
+    suspend fun drain(): DrainResult {
+        while (true) {
+            val op = dao.nextReady(now = clock.millis()) ?: return DrainResult.Empty
+            dao.update(op.copy(state = State.InFlight))
+            when (val r = runCatching { api.apply(op.type, op.payload, key = op.id) }
+                    .fold({ Outcome.Ok }, { it.toOutcome() })) {
+
+                Outcome.Ok        -&gt; dao.delete(op.id)
+                Outcome.Duplicate -&gt; dao.delete(op.id)          // idempotent replay
+                Outcome.Permanent -&gt; dao.update(op.copy(
+                        state = State.Failed, lastError = "permanent"))  // surface to user
+                Outcome.Retryable -&gt; {
+                    val n = op.attempts + 1
+                    if (n &gt;= MAX_ATTEMPTS) {
+                        dao.update(op.copy(state = State.Failed, attempts = n))
+                    } else {
+                        dao.update(op.copy(
+                            state = State.Pending, attempts = n,
+                            nextAttemptAt = clock.millis() + backoffWithJitter(n)))
+                        return DrainResult.RetryLater          // preserve order
+                    }
+                }
+            }
+        }
+    }
+}</pre></div>
+  <p><strong>Design points to say aloud:</strong> the row ID <em>is</em> the idempotency key, so a replay after process death is safe; <code>InFlight</code> must be recoverable — on startup, reset stale <code>InFlight</code> rows to <code>Pending</code>, because a crash mid-request leaves them stranded; draining stops on the first retryable failure to preserve ordering when operations are dependent (if they are independent, you can parallelise, and you should say which assumption you made); and a permanently-failed operation must be <em>visible to the user</em>, not retried forever or silently dropped.</p>
+  <p><strong>Follow-ups:</strong> "How do you handle operations that depend on each other?" — either FIFO with stop-on-failure as here, or an explicit dependency field. "What if the payload references a local ID the server has not seen?" — ID mapping: when the create succeeds, rewrite queued operations that reference the local ID with the server's. That is a real and commonly-missed requirement.</p>
+
+  <h2><span class="cn">Chapter 137</span>Problem: a typed state machine</h2>
+  <div class="code1"><div class="lab">Pure, exhaustive, trivially testable</div><pre>sealed interface State {
+    data object Idle : State
+    data class Loading(val query: String) : State
+    data class Ready(val items: List&lt;Item&gt;, val query: String) : State
+    data class Failed(val query: String, val retryable: Boolean) : State
+}
+sealed interface Event {
+    data class Search(val query: String) : Event
+    data class Loaded(val items: List&lt;Item&gt;) : Event
+    data class Errored(val retryable: Boolean) : Event
+    data object Retry : Event
+}
+sealed interface Effect { data class Fetch(val query: String) : Effect }
+
+/** Pure function: (State, Event) -&gt; (State, Effects). No coroutines, no I/O. */
+fun reduce(state: State, event: Event): Pair&lt;State, List&lt;Effect&gt;&gt; =
+    when (state) {
+        is State.Idle -&gt; when (event) {
+            is Event.Search -&gt; State.Loading(event.query) to listOf(Effect.Fetch(event.query))
+            else -&gt; state to emptyList()          // ignore impossible events
+        }
+        is State.Loading -&gt; when (event) {
+            is Event.Loaded  -&gt; State.Ready(event.items, state.query) to emptyList()
+            is Event.Errored -&gt; State.Failed(state.query, event.retryable) to emptyList()
+            is Event.Search  -&gt; State.Loading(event.query) to listOf(Effect.Fetch(event.query))
+            Event.Retry      -&gt; state to emptyList()
+        }
+        is State.Failed -&gt; when (event) {
+            Event.Retry     -&gt; State.Loading(state.query) to listOf(Effect.Fetch(state.query))
+            is Event.Search -&gt; State.Loading(event.query) to listOf(Effect.Fetch(event.query))
+            else -&gt; state to emptyList()
+        }
+        is State.Ready -&gt; when (event) {
+            is Event.Search -&gt; State.Loading(event.query) to listOf(Effect.Fetch(event.query))
+            else -&gt; state to emptyList()
+        }
+    }</pre></div>
+  <p><strong>Why separate effects from state:</strong> the reducer stays pure, so every transition is a one-line unit test with no coroutines, no mocks and no time. The runtime executes the effects and feeds results back as events. This is the structure that makes complex screens testable, and being able to explain <em>why</em> the effect list is returned rather than executed is the point of the question.</p>
+  <p><strong>Edge case worth naming:</strong> a stale <code>Loaded</code> arriving for a superseded query. Either the effect runner cancels superseded fetches (<code>flatMapLatest</code>), or <code>Loaded</code> carries the query and the reducer ignores mismatches. Say which you chose.</p>
+
+  <h2><span class="cn">Chapter 138</span>Problem: multi-level cache with coherent invalidation</h2>
+  <p><strong>Requirements to establish:</strong> which tier is the source of truth? Must a write be visible immediately to other readers? Is the memory tier shared across screens? For this version: disk is truth, memory is a bounded read-through cache, and all readers must see a write immediately.</p>
+  <div class="code1"><div class="lab">Solution — one write path, so the tiers cannot diverge</div><pre>class ProfileStore(
+    private val dao: ProfileDao,             // source of truth
+    private val api: ProfileApi,
+    maxMemoryEntries: Int = 64,
+) {
+    private val memory = LruCache&lt;UserId, Profile&gt;(maxMemoryEntries)
+    private val single = SingleFlight&lt;UserId, Unit&gt;(appScope)
+
+    /** Reads never bypass the source of truth's change stream. */
+    fun observe(id: UserId): Flow&lt;Profile?&gt; =
+        dao.observe(id)                       // ← invalidation comes free
+            .map { it?.toDomain() }
+            .onEach { it?.let { p -&gt; memory.put(id, p) } }
+
+    /** Fast path for a non-observing caller (e.g. a list mapper). */
+    fun peek(id: UserId): Profile? = memory.get(id)
+
+    /** The ONLY write path. Every tier updates from here. */
+    suspend fun refresh(id: UserId) = single.run(id) {
+        val dto = api.profile(id)
+        dao.upsert(dto.toEntity())            // triggers observe() → memory
+    }
+
+    suspend fun clear(id: UserId) {
+        memory.remove(id)
+        dao.delete(id)
+    }
+}</pre></div>
+  <p><strong>The design point that scores:</strong> the memory tier is populated <em>from</em> the database's change stream, not from the network. That single decision makes incoherence structurally impossible — there is no path where the network updates memory without the database seeing it, which is the bug in almost every hand-rolled two-tier cache. <code>SingleFlight</code> prevents N concurrent refreshes for the same key (Chapter 133).</p>
+  <p><strong>Follow-ups:</strong> "What if the memory cache is stale after a write from another process?" — Room's invalidation is process-local, so a multi-process app needs a ContentProvider or an explicit invalidation broadcast; say this rather than assuming. "How do you bound memory by bytes?" — an <code>LruCache</code> with a size function, sized from <code>ActivityManager.memoryClass</code>, and cleared on <code>onTrimMemory</code>.</p>
+
+  <h2><span class="cn">Chapter 139</span>Problem: bounded parallel execution</h2>
+  <p><strong>Scenario:</strong> upload 200 images. Unbounded concurrency exhausts connections and memory; sequential is too slow. Run at most N at a time, preserve failures individually, and cancel cleanly.</p>
+  <div class="code1"><div class="lab">Solution</div><pre>suspend fun &lt;T, R&gt; Iterable&lt;T&gt;.mapParallel(
+    concurrency: Int,
+    transform: suspend (T) -&gt; R,
+): List&lt;Result&lt;R&gt;&gt; = coroutineScope {
+    val gate = Semaphore(concurrency)
+    map { item -&gt;
+        async {
+            // withPermit releases on cancellation as well as completion.
+            gate.withPermit {
+                runCatching { transform(item) }
+                    .onFailure { if (it is CancellationException) throw it }
+            }
+        }
+    }.awaitAll()
+}
+
+// Usage: 4 at a time, one failure does not abort the rest.
+val results = files.mapParallel(concurrency = 4) { uploader.upload(it) }
+val failed = results.count { it.isFailure }</pre></div>
+  <p><strong>Two details interviewers probe.</strong> <code>withPermit</code> rather than manual <code>acquire</code>/<code>release</code>, because a cancellation between them leaks a permit and the pool silently shrinks to zero over time — a genuinely nasty production bug. And rethrowing <code>CancellationException</code> out of <code>runCatching</code>, which otherwise captures it as a failure and breaks structured concurrency.</p>
+  <p><strong>Follow-up:</strong> "Why not <code>Dispatchers.IO.limitedParallelism(4)</code>?" — That bounds threads, not in-flight operations. For suspending network calls the coroutine is not holding a thread while awaiting, so a dispatcher limit does not bound concurrency at all. This distinction is a reliable Staff discriminator.</p>
+
+  <h2><span class="cn">Chapter 140</span>Problem: merge sources with per-source failure isolation</h2>
+  <p><strong>Scenario:</strong> a dashboard combines profile, orders and recommendations. One source failing must degrade that section only — never blank the screen.</p>
+  <div class="code1"><div class="lab">Solution</div><pre>sealed interface Section&lt;out T&gt; {
+    data object Loading : Section&lt;Nothing&gt;
+    data class Ready&lt;T&gt;(val value: T) : Section&lt;T&gt;
+    data class Failed(val retryable: Boolean) : Section&lt;Nothing&gt;
+}
+
+private fun &lt;T&gt; Flow&lt;T&gt;.asSection(): Flow&lt;Section&lt;T&gt;&gt; =
+    map&lt;T, Section&lt;T&gt;&gt; { Section.Ready(it) }
+        .onStart { emit(Section.Loading) }
+        .catch { e -&gt;
+            if (e is CancellationException) throw e
+            emit(Section.Failed(retryable = e.isRetryable()))   // contained
+        }
+
+val state: StateFlow&lt;DashboardUi&gt; = combine(
+    profileRepo.observe().asSection(),
+    orderRepo.observe().asSection(),
+    recsRepo.observe().asSection(),
+) { profile, orders, recs -&gt; DashboardUi(profile, orders, recs) }
+    .stateIn(viewModelScope, WhileSubscribed(5_000), DashboardUi())</pre></div>
+  <p><strong>Why <code>catch</code> per source, before <code>combine</code>:</strong> an exception reaching <code>combine</code> terminates the combined flow and the whole screen goes blank. Converting failure into a <em>value</em> inside each branch is what makes partial degradation possible. This is the same principle as Part VII's per-section state, expressed in operators.</p>
+  <p><strong>Follow-ups:</strong> "How does retry work per section?" — each repository exposes a refresh command; the failed section's retry button calls only that one. "What if two sources are logically dependent?" — then they are one source; <code>combine</code> across a dependency produces an intermediate state that is briefly inconsistent, and the fix is to model the dependency upstream rather than in the UI.</p>
+
+  <h2><span class="cn">Chapter 141</span>Further problems, with the key insight for each</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:200px">Problem</th><th>The insight being tested</th></tr></thead>
+    <tbody>
+      <tr><td>Retry with exponential backoff</td><td>Jitter; rethrowing <code>CancellationException</code>; classifying retryable versus not (Part IX).</td></tr>
+      <tr><td>Token refresh coordination</td><td>Compare against the <em>stale</em> token inside the lock so N concurrent 401s cause one refresh.</td></tr>
+      <tr><td>Paginated repository with cache</td><td>Cursor keys, transactional page+key writes, and dedupe on refresh.</td></tr>
+      <tr><td>Event bus with replay</td><td><code>SharedFlow</code> replay semantics, and why replay causes duplicate navigation after rotation.</td></tr>
+      <tr><td>Custom Flow operator</td><td>Exception transparency and context preservation — do not <code>catch</code> around <code>emit</code>, do not <code>withContext</code> around it.</td></tr>
+      <tr><td>Incremental search index</td><td>Trie or SQLite FTS; the real answer is usually "use FTS", and knowing when hand-rolling is justified.</td></tr>
+      <tr><td>Priority work queue with starvation avoidance</td><td>Ageing: a low-priority item's effective priority rises with wait time, or long uploads never run.</td></tr>
+      <tr><td>Circuit breaker</td><td>Three states (closed, open, half-open); the half-open probe is what candidates omit.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XX rapid recall</h4>
+    <ul>
+      <li>Clarify, then write the API, then implement. Reason about two concurrent callers out loud.</li>
+      <li>LRU with <code>accessOrder</code>: reads mutate, so reads must be synchronised too.</li>
+      <li>Deduplicate in a shared scope so one caller's cancellation cannot cancel everyone's work.</li>
+      <li>Debounce waits for silence; throttle-first emits then suppresses. Do not confuse them.</li>
+      <li>Never hold a lock across <code>delay</code> or any suspension you can avoid.</li>
+      <li>Outbox: row ID is the idempotency key; recover stale <code>InFlight</code> on startup; surface permanent failures.</li>
+      <li>Keep reducers pure and return effects — that is what makes them testable.</li>
+      <li>Volunteer the limits of your own solution; it is the strongest available signal.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p19" data-p="p19"><span class="k">Previous</span><span class="t">← Part XIX</span></a><a class="r" href="#p21" data-p="p21"><span class="k">Next</span><span class="t">Part XXI — Code Review →</span></a></div>
+</section>

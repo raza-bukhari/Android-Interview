@@ -1,0 +1,218 @@
+<section class="page" id="p26">
+  <header class="phead">
+    <p class="eyebrow">Part XXVI</p>
+    <h1>Comparison <em>Reference</em></h1>
+    <p class="deck">Head-to-head comparisons on fixed dimensions, so they can be scanned side by side under pressure — plus how to turn a table into a spoken answer in ninety seconds.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 159</span>How to speak a comparison</h2>
+  <p>Reciting a table is a Senior answer. The Staff version leads with the <em>criterion</em>, gives the answer, then the caveat:</p>
+  <div class="code1"><div class="lab">Ninety-second structure</div><pre>Criterion  "The decision turns on whether the data has other writers."
+Answer     "So: Flow for the observable case, suspend for commands."
+Mechanism  "Because a cold Flow re-executes per collector, five screens
+            means five calls unless you share it — that's the trap."
+Inversion  "It flips if we add offline sync, because then everything
+            has another writer."</pre></div>
+
+  <h2><span class="cn">Chapter 160</span>Reactive and concurrency</h2>
+
+  <h3>Flow vs LiveData</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Flow / StateFlow</th><th>LiveData</th></tr></thead>
+    <tbody>
+      <tr><td>Use case</td><td>Any observable data, any layer</td><td>UI-layer observation in legacy codebases</td></tr>
+      <tr><td>Advantages</td><td>Rich operators, structured concurrency, platform-independent (KMP), backpressure control</td><td>Lifecycle-aware by default; near-zero misuse surface</td></tr>
+      <tr><td>Disadvantages</td><td>Not lifecycle-aware — needs <code>repeatOnLifecycle</code> or <code>collectAsStateWithLifecycle</code></td><td>Android-only, main-thread bound, almost no operators, no backpressure</td></tr>
+      <tr><td>Complexity</td><td>Higher: sharing, scope, cancellation are yours to get right</td><td>Low</td></tr>
+      <tr><td>Testing</td><td>Turbine plus virtual time; excellent once set up</td><td><code>InstantTaskExecutorRule</code> plus observer boilerplate</td></tr>
+      <tr><td>Staff view</td><td>Default for new code. The migration risk is losing lifecycle awareness silently — that is the thing to check in review.</td><td>Not a defect. Migrate when touching the code, not as a project.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>StateFlow vs SharedFlow vs Channel</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>StateFlow</th><th>SharedFlow</th><th>Channel</th></tr></thead>
+    <tbody>
+      <tr><td>Semantics</td><td>Always a current value; conflated; distinct-until-changed</td><td>Configurable replay and buffer; no initial value</td><td>Point-to-point; each element consumed once</td></tr>
+      <tr><td>Consumers</td><td>Many</td><td>Many</td><td>One (effectively)</td></tr>
+      <tr><td>Right for</td><td>UI state</td><td>Events with multiple observers</td><td>One-shot events with one observer</td></tr>
+      <tr><td>Failure mode</td><td>Drops intermediate values — never put events in it</td><td><code>replay &gt; 0</code> re-fires events after rotation</td><td>Events lost if nothing is collecting; gone on rotation once consumed</td></tr>
+      <tr><td>Staff view</td><td colspan="3">State in <code>StateFlow</code>, events in a <code>Channel</code> exposed via <code>receiveAsFlow()</code> for the single-consumer case. There is no loss-free option — name which loss you are accepting.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>suspend vs Flow · RxJava vs Coroutines</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>suspend function</th><th>Flow</th></tr></thead>
+    <tbody>
+      <tr><td>Shape</td><td>One request, one result</td><td>Zero to many results over time</td></tr>
+      <tr><td>Errors</td><td>Exceptions with structured propagation</td><td>Emissions or terminal failure; needs <code>catch</code></td></tr>
+      <tr><td>Right for</td><td>Commands: submit, refresh, upload</td><td>Observable state with other writers</td></tr>
+      <tr><td>Trap</td><td>—</td><td>Cold: N collectors = N executions unless shared</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>RxJava</th><th>Coroutines / Flow</th></tr></thead>
+    <tbody>
+      <tr><td>Advantages</td><td>Vast operator set, mature, explicit schedulers</td><td>Language-level cancellation, readable sequential code, first-class Android support, KMP</td></tr>
+      <tr><td>Disadvantages</td><td>Steep learning curve, manual disposal, large method count</td><td>Fewer operators; sharing and scoping are easy to get wrong</td></tr>
+      <tr><td>Migration risk</td><td colspan="2">Error semantics differ: an Rx <code>onError</code> terminates one stream; an uncaught coroutine exception cancels the scope. Enumerate these before converting (Part XVIII).</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 161</span>UI and architecture</h2>
+
+  <h3>XML Views vs Jetpack Compose</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>XML + Views</th><th>Compose</th></tr></thead>
+    <tbody>
+      <tr><td>Advantages</td><td>Mature tooling, huge ecosystem, predictable performance, smaller learning curve for the team you have</td><td>Less code, state-driven correctness, previews, testable via semantics, better animation and theming story</td></tr>
+      <tr><td>Disadvantages</td><td>Imperative state bugs, boilerplate, findViewById-era hazards, hard to unit test</td><td>Recomposition and stability as a new failure class, runtime you must understand, needs baseline profiles</td></tr>
+      <tr><td>Performance</td><td>Well understood; measured over a decade</td><td>Comparable when done correctly; worse without keys, stability and profiles</td></tr>
+      <tr><td>Staff view</td><td colspan="2">New screens in Compose. Migrate existing screens only when they are being changed anyway, and migrate whole screens — leaf-level interop is where the regressions come from.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>MVVM vs MVI</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>MVVM</th><th>MVI</th></tr></thead>
+    <tbody>
+      <tr><td>Input</td><td>Public methods</td><td>One <code>onIntent(Intent)</code></td></tr>
+      <tr><td>Traceability</td><td>State mutates from several places</td><td>Every transition through one reducer — loggable and replayable</td></tr>
+      <tr><td>Boilerplate</td><td>Low</td><td>Higher: intent, state, effect types per screen</td></tr>
+      <tr><td>Testing</td><td>Call method, assert state</td><td>Reducer is a pure function — the cheapest tests in the codebase</td></tr>
+      <tr><td>Right for</td><td>Most screens</td><td>Complex flows with concurrent inputs: checkout, editors, wizards</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Repository vs UseCase · Singleton vs DI</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Repository</th><th>UseCase</th></tr></thead>
+    <tbody>
+      <tr><td>Owns</td><td>Data access policy: caching, retry, local vs remote, merging sources</td><td>Domain rules: eligibility, pricing, validation, cross-source orchestration</td></tr>
+      <tr><td>Introduce when</td><td>Always, per domain concept, with one owner</td><td>There is logic, multiple sources, or reuse — not per repository method</td></tr>
+      <tr><td>Smell</td><td>Exposes UI state, or contains domain rules</td><td>One-line pass-through to a single repository</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Singleton object</th><th>DI-provided instance</th></tr></thead>
+    <tbody>
+      <tr><td>Testability</td><td>Requires reset hooks; leaks state between tests</td><td>Constructed per test with fakes</td></tr>
+      <tr><td>Lifetime</td><td>Process; empty after process death — a real bug source</td><td>Explicit and scoped</td></tr>
+      <tr><td>When acceptable</td><td>Stateless utilities and constants</td><td>Everything with state or dependencies</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 162</span>Infrastructure</h2>
+
+  <h3>Hilt vs Koin vs manual</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Hilt/Dagger</th><th>Koin</th><th>Manual</th></tr></thead>
+    <tbody>
+      <tr><td>Validation</td><td>Compile time</td><td>Runtime — fails when the screen opens</td><td>Compile time</td></tr>
+      <tr><td>Build cost</td><td>Significant (KSP across modules)</td><td>Negligible</td><td>None</td></tr>
+      <tr><td>Scaling</td><td>Best for many modules and teams</td><td>Good to medium size; KMP-friendly</td><td>Small apps and libraries</td></tr>
+      <tr><td>Staff view</td><td colspan="3">Compile-time validation is decisive above ~10 engineers, because a runtime DI failure in a rarely-visited screen <em>will</em> reach production. Below that, Koin's simplicity and build speed often win. Libraries: no framework.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Room vs raw SQLite · DataStore vs SharedPreferences</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Room</th><th>Raw SQLite</th></tr></thead>
+    <tbody>
+      <tr><td>Advantages</td><td>Compile-time query verification, observable queries, coroutine and Paging integration, migration testing</td><td>Total control; no codegen; fully dynamic schemas and queries</td></tr>
+      <tr><td>Disadvantages</td><td>Codegen build cost; awkward for highly dynamic queries</td><td>Everything is manual, including the bugs</td></tr>
+      <tr><td>Verdict</td><td colspan="2">Room for almost everything; drop to <code>SupportSQLite</code> within Room for the dynamic cases rather than abandoning it.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>DataStore</th><th>SharedPreferences</th></tr></thead>
+    <tbody>
+      <tr><td>Threading</td><td>Fully async, transactional, observable</td><td><code>commit()</code> blocks; <code>apply()</code> drains synchronously at <code>onStop</code> — an ANR source</td></tr>
+      <tr><td>Errors</td><td>Surfaced (must handle <code>IOException</code>)</td><td>Silent</td></tr>
+      <tr><td>Limitation</td><td>No multi-process support</td><td>Multi-process mode exists but is unreliable</td></tr>
+      <tr><td>Verdict</td><td colspan="2">DataStore for new code. If you have multiple processes, neither is safe — front it with a ContentProvider or use a database.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>WorkManager vs Foreground Service vs coroutine</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>WorkManager</th><th>Foreground service</th><th>Coroutine</th></tr></thead>
+    <tbody>
+      <tr><td>Durability</td><td>Survives process death and reboot</td><td>Survives backgrounding while running</td><td>None</td></tr>
+      <tr><td>Timing</td><td>Eventually — can be hours in Doze</td><td>Now, while visible</td><td>Now, while the scope lives</td></tr>
+      <tr><td>Cost</td><td>Some latency; scheduling overhead</td><td>A visible notification; policy scrutiny; battery</td><td>Free</td></tr>
+      <tr><td>Right for</td><td>Sync, upload, deferred writes</td><td>Navigation, media playback, active tracking</td><td>Screen-scoped reads</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 163</span>Networking and system shape</h2>
+
+  <h3>REST vs GraphQL vs gRPC</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Dimension</th><th>REST</th><th>GraphQL</th><th>gRPC</th></tr></thead>
+    <tbody>
+      <tr><td>Round trips per screen</td><td>Often several</td><td>One</td><td>Several, but cheap</td></tr>
+      <tr><td>Over-fetching</td><td>Common</td><td>Eliminated by design</td><td>Fixed per method; compact binary</td></tr>
+      <tr><td>HTTP caching</td><td>Free</td><td>None (POST) — needs a normalised client cache</td><td>None</td></tr>
+      <tr><td>Debuggability</td><td>Excellent in any proxy</td><td>Moderate; queries opaque in logs</td><td>Poor without tooling</td></tr>
+      <tr><td>Client cost</td><td>Lowest</td><td>A normalised cache is a real subsystem with its own bugs</td><td>Codegen and binary size</td></tr>
+      <tr><td>Choose per</td><td colspan="3">Surface, not company. GraphQL where a screen aggregates many resources; gRPC for high-frequency streaming; REST for everything else.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>WebSocket vs polling vs push</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Dimension</th><th>WebSocket</th><th>Polling</th><th>FCM push</th></tr></thead>
+    <tbody>
+      <tr><td>Latency</td><td>Milliseconds</td><td>Half the interval, on average</td><td>Seconds, best-effort</td></tr>
+      <tr><td>Battery</td><td>High if held while backgrounded</td><td>Proportional to frequency</td><td>Near zero — the OS holds the connection</td></tr>
+      <tr><td>Reliability</td><td>Dies in Doze and on network change; needs resume tokens</td><td>Very reliable, wasteful</td><td>Best-effort; OEM-dependent</td></tr>
+      <tr><td>Staff answer</td><td colspan="3">Hybrid: socket only while the relevant screen is foregrounded, push as the wake signal when backgrounded, delta fetch on resume to close gaps.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Offline-first vs online-first · Modular vs monolithic · Clean vs simple layering</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Offline-first</th><th>Online-first</th></tr></thead>
+    <tbody>
+      <tr><td>Read/write path</td><td>DB is truth; network reconciles</td><td>Network is truth; cache is a fallback</td></tr>
+      <tr><td>Complexity</td><td>High: conflicts, queues, tombstones, reconciliation</td><td>Low</td></tr>
+      <tr><td>Choose when</td><td>Users author data, or connectivity is genuinely unreliable</td><td>Data is inherently server-live: prices, availability, feeds</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Multi-module</th><th>Monolithic module</th></tr></thead>
+    <tbody>
+      <tr><td>Build</td><td>Parallel and incremental — <em>if</em> the graph is shallow and <code>implementation</code>-scoped</td><td>Everything recompiles</td></tr>
+      <tr><td>Boundaries</td><td>Enforceable by the compiler</td><td>Convention only</td></tr>
+      <tr><td>Cost</td><td>Build config, graph maintenance, longer configuration phase</td><td>None upfront; grows without limit</td></tr>
+      <tr><td>Breakpoint</td><td colspan="2">Roughly three teams. Below it, overhead can exceed benefit — and a badly-shaped graph builds slower than a monolith.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Dimension</th><th>Clean Architecture</th><th>Simple layered (UI / repository)</th></tr></thead>
+    <tbody>
+      <tr><td>Files per feature</td><td>5–8</td><td>2–3</td></tr>
+      <tr><td>Domain tests</td><td>Pure JVM, milliseconds</td><td>Mixed with Android concerns</td></tr>
+      <tr><td>Onboarding</td><td>Days to internalise "where does this go?"</td><td>Immediate</td></tr>
+      <tr><td>Choose when</td><td>Non-trivial domain rules, multiple teams, or KMP ambitions</td><td>Small teams, CRUD-shaped features, short-lived apps</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XXVI rapid recall</h4>
+    <ul>
+      <li>Lead with the criterion, not the feature list. Then answer, mechanism, inversion.</li>
+      <li>Flow vs LiveData: the migration risk is silently losing lifecycle awareness.</li>
+      <li>State in StateFlow, events in a Channel; every option loses something — name which.</li>
+      <li>Compose for new screens, whole-screen migration only.</li>
+      <li>Compile-time DI validation is decisive above ~10 engineers.</li>
+      <li>Choose the API paradigm per surface, not per company.</li>
+      <li>Real-time: socket foregrounded, push backgrounded, delta fetch on resume.</li>
+      <li>Modularization pays around three teams; offline-first pays when users author data.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p25" data-p="p25"><span class="k">Previous</span><span class="t">← Part XXV</span></a><a class="r" href="#p27" data-p="p27"><span class="k">Next</span><span class="t">Part XXVII — Rapid Fire →</span></a></div>
+</section>

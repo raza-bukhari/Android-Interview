@@ -1,0 +1,210 @@
+<section class="page" id="p11">
+  <header class="phead">
+    <p class="eyebrow">Part XI</p>
+    <h1>Performance <em>Engineering</em></h1>
+    <p class="deck">Built around one repeatable protocol — hypothesis, metric, tool, diagnosis, fix, verification, prevention — applied to the regressions interviewers actually describe.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 70</span>A performance methodology</h2>
+  <p>The reflex that marks a Senior answer is naming a fix ("add a baseline profile"). The reflex that marks a Staff answer is naming a <em>measurement</em> first. The seven-step protocol used throughout this part:</p>
+  <ol>
+    <li><strong>Quantify.</strong> Which metric, at which percentile, on which devices, changed by how much and when. "The app is slow" is not actionable; "p90 TTID on Android 13, mid-tier, up 1.4 s since 8.4.0" is.</li>
+    <li><strong>Hypothesise.</strong> Three candidate causes, ranked, each with a prediction that would distinguish it.</li>
+    <li><strong>Instrument or trace.</strong> Perfetto/system trace on a physical mid-tier device, release build, in the failing condition.</li>
+    <li><strong>Diagnose.</strong> Identify the specific frames or spans that account for the regression. Confirm it explains the <em>whole</em> delta, not a plausible slice.</li>
+    <li><strong>Fix.</strong> Smallest change that addresses the cause.</li>
+    <li><strong>Verify.</strong> Same measurement, same conditions, plus a field check after rollout — lab wins that do not reproduce in the field are common.</li>
+    <li><strong>Prevent.</strong> A CI benchmark or a Vitals alert so the regression cannot silently return. Without this you will do the whole investigation again next year.</li>
+  </ol>
+
+  <div class="note"><span class="lab">Device policy</span><p>Measure on the 25th-percentile device in your install base, not on a current flagship. Most performance bugs are simply invisible on the newest hardware, which is why they reach production: they were tested on the phone in the engineer's pocket.</p></div>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:140px">Metric</th><th style="min-width:130px">Field source</th><th>Lab source</th></tr></thead>
+    <tbody>
+      <tr><td>TTID / TTFD</td><td>Play Vitals, Firebase Performance</td><td>Macrobenchmark <code>StartupTimingMetric</code></td></tr>
+      <tr><td>Frame timing / jank</td><td>Vitals frame metrics, <code>JankStats</code></td><td>Macrobenchmark <code>FrameTimingMetric</code>, Perfetto</td></tr>
+      <tr><td>ANR rate</td><td>Vitals ANR clusters (with traces)</td><td>StrictMode, main-thread tracing</td></tr>
+      <tr><td>Memory / OOM</td><td>Crashlytics OOM signals, Vitals</td><td>Studio Memory Profiler, LeakCanary, heap dumps</td></tr>
+      <tr><td>Battery</td><td>Vitals wakelock/wakeup excess</td><td>Battery Historian, <code>dumpsys batterystats</code></td></tr>
+      <tr><td>App size</td><td>Play console size report</td><td>APK Analyzer, size diff in CI</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 71</span>App startup</h2>
+  <p><strong>Cold</strong> = process creation + Application + first Activity + first frame. <strong>Warm</strong> = process alive, activity recreated. <strong>Hot</strong> = activity resumed. Only cold start is worth optimising as a programme; it correlates with install-day retention and is the one users notice.</p>
+  <p>Two metrics: <strong>TTID</strong> (time to initial display — first frame drawn) and <strong>TTFD</strong> (time to full display — content actually usable). Optimising TTID alone produces the cheat of drawing an empty skeleton fast; report both, and call <code>reportFullyDrawn()</code> so TTFD is measurable.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — the startup tax nobody owns</div><pre>class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        Analytics.init(this)         // 120 ms
+        CrashReporter.init(this)     // 40 ms
+        AdsSdk.initialize(this)      // 300 ms, network on main
+        ExperimentSdk.fetchSync()    // 250 ms, blocking network!
+        Timber.plant(DebugTree())
+        preloadEverything()
+    }
+}
+// Every SDK team adds "just one more init".</pre>
+      <p class="why">A blocking network call in <code>Application.onCreate</code> is a startup ANR waiting for a bad network. And nobody owns the cumulative total, so it grows by 50 ms a quarter forever.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — tiered, measured, budgeted</div><pre>class App : Application() {
+    override fun onCreate() {
+        super.onCreate()
+        // Tier 1: required before the first frame. Keep tiny.
+        CrashReporter.init(this)            // must catch startup crashes
+
+        // Tier 2: needed soon, not now.
+        appScope.launch(Dispatchers.Default) {
+            Analytics.init(this@App)
+            ExperimentSdk.warm()            // async; use cached values meanwhile
+        }
+    }
+}
+
+// Tier 3: on first use.
+val ads by lazy { AdsSdk.create(context) }
+
+// Enforced in CI:
+@Test fun startup_budget() = benchmarkRule.measureRepeated(
+    metrics = listOf(StartupTimingMetric()),
+    startupMode = StartupMode.COLD, iterations = 15,
+) { pressHome(); startActivityAndWait() }
+// fails the build if p50 TTID regresses &gt; 10%</pre>
+      <p class="why">Three tiers, an owner for the total, and a CI gate. The gate is the part that makes it stick — otherwise the budget is re-spent within two quarters.</p></div>
+  </div>
+
+  <h4>Baseline profiles</h4>
+  <p>Without a baseline profile, code runs interpreted until the JIT warms up — so the first launch and first scroll, the impressions that matter most, are the slowest the app will ever be. A baseline profile ships AOT-compiled hot paths in the APK, typically improving cold start by 15–30% and largely eliminating first-scroll jank. Generate them from a Macrobenchmark journey that covers startup <em>and</em> the primary scroll, and regenerate when the hot paths change — a stale profile silently stops helping.</p>
+
+  <h2><span class="cn">Chapter 72</span>Rendering and jank</h2>
+  <p>A frame must complete within the refresh budget: 16.7 ms at 60 Hz, 8.3 ms at 120 Hz. Note that a high-refresh-rate device makes previously-fine code janky — a common cause of "it only stutters on the newer phones."</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Symptom in a trace</th><th>Likely cause</th><th>Fix</th></tr></thead>
+    <tbody>
+      <tr><td>Long <code>Choreographer#doFrame</code>, time in your code</td><td>Main-thread work: parsing, mapping, formatting, disk</td><td>Move off main; precompute in the state mapper</td></tr>
+      <tr><td>Long measure/layout spans</td><td>Deep nesting, intrinsics, nested scrollables, subcomposition</td><td>Flatten; avoid intrinsic measurement in hot lists</td></tr>
+      <tr><td>Long draw, high GPU</td><td>Overdraw, shadows, blur, large unclipped layers</td><td>Reduce layers, <code>graphicsLayer</code> caching, remove backgrounds</td></tr>
+      <tr><td>Regular GC pauses</td><td>Per-frame allocation</td><td>Hoist allocations out of draw/item bodies</td></tr>
+      <tr><td>Binder transaction spans</td><td>IPC on main — <code>ContentResolver</code>, <code>PackageManager</code></td><td>Cache the result; move the call off main</td></tr>
+      <tr><td>First-scroll-only jank</td><td>No baseline profile / JIT warm-up</td><td>Baseline profile covering the scroll journey</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 73</span>ANRs</h2>
+  <p>An ANR fires when the main thread cannot service an event in time: ~5 s for input dispatch, ~20 s for a foreground service start, ~10 s for a broadcast. The trap is that <strong>the stack trace shows where the main thread was when the timer expired, not what caused the delay</strong> — so the top frame is frequently innocent.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:170px">ANR pattern</th><th>What the trace shows</th><th>Real cause</th></tr></thead>
+    <tbody>
+      <tr><td>Lock contention</td><td>Main blocked in <code>lock</code>/<code>monitor</code></td><td>A background thread holds the lock while doing I/O. Look at the <em>other</em> threads in the trace.</td></tr>
+      <tr><td>Binder wait</td><td>Main in <code>BinderProxy.transactNative</code></td><td>system_server or another app's provider is slow; often device- or OEM-specific.</td></tr>
+      <tr><td>Disk I/O</td><td>Main in <code>SharedPreferences</code>/file read</td><td><code>apply()</code> queue drained at <code>onStop</code>, or a first-read of a large prefs file.</td></tr>
+      <tr><td>Broadcast overrun</td><td>Main in <code>onReceive</code></td><td>Work done inline in a receiver instead of handed to WorkManager.</td></tr>
+      <tr><td>Deadlock</td><td>Two threads each waiting</td><td>Ordering bug; frequently a <code>runBlocking</code> on main awaiting work that needs main.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="q">
+    <p class="qt">Production scenario</p>
+    <p class="qh">"ANRs jumped 30% after the last release. Walk me through it."</p>
+    <h4>Investigation</h4>
+    <p>"First, quantify and segment before touching code. In Play Vitals I'd check: is it one ANR cluster or a broad rise? Which Android versions, OEMs, device tiers? Did it start exactly at the rollout, or track the rollout percentage — which would confirm causation rather than coincidence? Is a specific screen or entry point over-represented?</p>
+    <p>Segmentation usually collapses the hypothesis space immediately. A 30% rise concentrated on one OEM and one Android version is almost never our own code path; a rise spread evenly across devices that tracks the rollout curve is.</p>
+    <h4>Hypotheses, ranked</h4>
+    <ol>
+      <li>New synchronous work added to a startup or resume path — the most common cause of a step change at release.</li>
+      <li>A lock now held across I/O because a call became blocking (or a library upgraded and changed its threading).</li>
+      <li>An SDK upgrade doing work on the main thread — frequently an ads, analytics or attribution SDK.</li>
+      <li>A broadcast receiver doing more work, or being registered where it previously was not.</li>
+      <li>Not us: an OS or Play Services rollout coinciding with ours. Checking whether the previous app version's ANR rate <em>also</em> rose over the same window distinguishes this in one query.</li>
+    </ol>
+    <h4>Diagnosis</h4>
+    <p>Read the actual ANR traces, and read <em>all</em> the threads, not just main. If main is blocked on a monitor, find the thread holding it and see what it is doing — that is where the bug is. Then reproduce locally with StrictMode in penalty-death mode on the suspected path, and take a system trace on a mid-tier device.</p>
+    <h4>Fix, verification, prevention</h4>
+    <p>Fix the specific blocking call. Verify by checking the ANR rate for the patched version at equivalent rollout percentage, not overall — mixing versions hides the signal. Prevention has three layers: StrictMode with penalty-death in debug and internal builds, so main-thread I/O fails loudly during development; a Macrobenchmark on the affected journey in CI; and an ANR-rate alert with a rollout halt criterion, so the next occurrence stops at 5% of users rather than 100%.</p>
+    <h4>The Staff addition</h4>
+    <p>"I'd also ask why our release process let a 30% ANR regression reach full rollout. If we had a staged-rollout halt criterion on ANR rate, this would have stopped at 5%. Fixing the ANR is the ticket; fixing the release gate is the actual outcome."</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"What if you cannot reproduce it?" — Ship targeted tracing behind a flag to the affected cohort, and use the Vitals trace clustering rather than trying to reproduce a device-specific timing bug locally.</li>
+      <li>"What's an acceptable ANR rate?" — Play's bad-behaviour threshold is 0.47% of daily sessions, and exceeding it affects store visibility. Internally, most mature apps target well under 0.2%.</li>
+      <li>"How do you catch ANRs that Vitals under-reports?" — Vitals only covers Play-installed users with reporting enabled; supplement with a watchdog that samples main-thread responsiveness and reports long stalls with a stack.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 74</span>Battery and background cost</h2>
+  <ul>
+    <li><strong>Wakelocks</strong> held past their need are the classic drain. Any wakelock should be timeout-bounded and released in a <code>finally</code>.</li>
+    <li><strong>Wakeups</strong> cost more than the work: waking the radio and CPU every minute for a 20 ms sync is far worse than one batched sync every 30 minutes. Batch, and let WorkManager coalesce.</li>
+    <li><strong>Location is the largest single drain</strong> available to an app. Match accuracy and interval to the actual product need, use passive/balanced modes where possible, and stop when the screen is off unless the product genuinely requires tracking.</li>
+    <li><strong>Attribution:</strong> Battery Historian on a dogfood build and Vitals' excessive-wakeup metrics in the field. Users cannot tell you which subsystem drained their battery, but the OS can.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — polling on a timer</div><pre>// Every 60 s, forever, whether or not anything changed
+PeriodicWorkRequestBuilder&lt;SyncWorker&gt;(15, MINUTES)
+    .build()
+    .also { wm.enqueue(it) }          // duplicated on every launch
+
+wakeLock.acquire()                     // no timeout
+doSync()                               // may throw
+wakeLock.release()                     // never reached on failure</pre>
+      <p class="why">Unbatched wakeups plus a leaked wakelock on the error path. This is the shape of "battery consumption doubled after the release."</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — event-driven, bounded, unique</div><pre>// Server tells us when there is something to sync.
+// Periodic work is a safety net, not the mechanism.
+wm.enqueueUniquePeriodicWork(
+    "sync-safety-net",
+    ExistingPeriodicWorkPolicy.KEEP,
+    PeriodicWorkRequestBuilder&lt;SyncWorker&gt;(6, HOURS)
+        .setConstraints(Constraints(
+            requiredNetworkType = NetworkType.UNMETERED,
+            requiresBatteryNotLow = true,
+        )).build()
+)
+
+wakeLock.acquire(30_000)               // hard timeout
+try { doSync() } finally { if (wakeLock.isHeld) wakeLock.release() }</pre>
+      <p class="why">Push as the trigger, periodic work as the fallback, constraints so it runs when it is cheap, and a wakelock that cannot outlive a crash.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 75</span>App size and delivery</h2>
+  <p>Install size measurably affects install conversion, particularly in markets with expensive data — which makes it a business metric, not a hygiene metric. Where the bytes go, and what actually works:</p>
+  <ul>
+    <li><strong>R8 in full mode</strong> with resource shrinking. Verify it is genuinely on in release — a stray <code>-dontoptimize</code> or an over-broad keep rule from an SDK's consumer rules commonly disables most of the benefit.</li>
+    <li><strong>App Bundle splits</strong> by density, ABI and language: typically the single largest win, and free.</li>
+    <li><strong>Native libraries</strong> are usually the biggest line item in a media app. Check whether you ship four ABIs when the bundle already splits them.</li>
+    <li><strong>Images</strong>: WebP/AVIF over PNG, vector drawables where the asset allows.</li>
+    <li><strong>Dynamic feature delivery</strong> only when a large, rarely-used feature is demonstrably costing conversion — it complicates DI, navigation and testing considerably.</li>
+    <li><strong>Gate it in CI:</strong> report the size delta on every pull request. Size regresses one library at a time, and nobody notices a 400 KB dependency until the total is 90 MB.</li>
+  </ul>
+
+  <h2><span class="cn">Chapter 76</span>Running a performance programme</h2>
+  <p>A Staff engineer is not asked to fix one screen; they are asked why the app keeps getting slower. The answer is always the same: performance has no owner and no budget, so it loses every trade-off individually while losing badly in aggregate.</p>
+  <ol>
+    <li><strong>Define SLIs and targets per tier.</strong> "p90 cold start under 1.5 s on mid-tier devices" — not one number for all hardware.</li>
+    <li><strong>Give each team a budget</strong> for the surfaces they own, visible on a dashboard they see weekly.</li>
+    <li><strong>Gate in CI</strong> with Macrobenchmarks on the top journeys, so regressions are caught before rollout rather than in Vitals.</li>
+    <li><strong>Halt criteria on staged rollout</strong>: a startup or ANR regression stops the rollout automatically.</li>
+    <li><strong>A standing budget for fixes</strong> — commonly 10–20% of capacity. Without it, the ratchet only turns one way.</li>
+    <li><strong>Report in business terms.</strong> "Cold start down 600 ms; day-1 retention up 0.4%" funds the next quarter of work. "We reduced recompositions" does not.</li>
+  </ol>
+
+  <div class="panel">
+    <h4>Part XI rapid recall</h4>
+    <ul>
+      <li>Measure before hypothesising; segment by version, OEM, device tier and rollout percentage.</li>
+      <li>TTID and TTFD together; <code>reportFullyDrawn()</code> or you are optimising a skeleton.</li>
+      <li>Three-tier startup init with an owner and a CI budget; no blocking network in <code>Application.onCreate</code>.</li>
+      <li>Baseline profiles cover startup <em>and</em> the primary scroll; regenerate when hot paths change.</li>
+      <li>ANR traces: read every thread, not just main — the cause is usually the lock holder.</li>
+      <li>Batch wakeups, bound wakelocks with timeouts and <code>finally</code>, push-trigger rather than poll.</li>
+      <li>Size: full-mode R8, bundle splits, native libs, CI size diff on every PR.</li>
+      <li>A programme needs SLIs, per-team budgets, CI gates, rollout halt criteria, and standing capacity.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p10" data-p="p10"><span class="k">Previous</span><span class="t">← Part X</span></a><a class="r" href="#p12" data-p="p12"><span class="k">Next</span><span class="t">Part XII — Memory →</span></a></div>
+</section>

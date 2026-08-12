@@ -1,0 +1,330 @@
+<section class="page" id="p2">
+  <header class="phead">
+    <p class="eyebrow">Part II</p>
+    <h1>Kotlin <em>Mastery</em></h1>
+    <p class="deck">Kotlin at the level where you can explain what the compiler emits, and why that matters for APIs crossing module boundaries and surviving 40 engineers.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 7</span>Type system, null safety, and the Java boundary</h2>
+  <p>Kotlin's null safety is a <em>compile-time</em> guarantee that stops at the JVM boundary. Every production NPE in a Kotlin codebase comes from one of four places: platform types from Java, reflection-based deserialisation, <code>lateinit</code>, or a <code>!!</code> someone added under deadline pressure.</p>
+
+  <h4>Platform types are the biggest hole</h4>
+  <p>When Kotlin calls unannotated Java, the return type is a <em>platform type</em> (<code>String!</code>): the compiler declines to enforce either nullability. Assigning it to a non-null type inserts an implicit null check that throws at the assignment site — which is why the stack trace often points at code that looks obviously safe.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid</div><pre>// Java library, no @Nullable annotations
+val name: String = javaUser.getName()   // platform type
+val len = name.length
+
+// Deserialised by a reflective parser
+data class Config(val apiUrl: String)
+// Parser can construct this with apiUrl == null,
+// bypassing the constructor's null check entirely.</pre>
+      <p class="why">Both compile. The first throws at the assignment with a confusing trace; the second produces a <code>String</code> that is null at runtime, and the NPE surfaces somewhere unrelated hours later.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer</div><pre>// Be explicit about the boundary
+val name: String = javaUser.name
+    ?: error("User.name was null for id=${javaUser.id}")
+
+// Model wire types as nullable, validate once, map inward
+@Serializable
+data class ConfigDto(val apiUrl: String? = null)
+
+fun ConfigDto.toDomain(): Config =
+    Config(apiUrl = requireNotNull(apiUrl) { "apiUrl missing" })
+
+data class Config(val apiUrl: String)   // always valid</pre>
+      <p class="why">Null becomes a validated boundary concern, and the failure message identifies the record. The domain type carries a real guarantee.</p></div>
+  </div>
+
+  <div class="q">
+    <p class="qt">Interview question · fundamentals with a Staff tail</p>
+    <p class="qh">"Kotlin is null-safe, so why do we still see NPEs in production Kotlin code?"</p>
+    <h4>Why interviewers ask this</h4>
+    <p>It separates people who learned Kotlin's rules from people who have debugged Kotlin at scale. The second group immediately names platform types and deserialisation.</p>
+    <h4>Deep explanation</h4>
+    <p>Null safety is enforced by the compiler, not the runtime. Four escape hatches: <strong>platform types</strong> from unannotated Java; <strong>reflection</strong>, which can write null into a non-null field (Gson is the classic offender; kotlinx.serialization and Moshi's Kotlin adapter respect nullability); <strong><code>lateinit</code></strong>, which throws <code>UninitializedPropertyAccessException</code>; and <strong><code>!!</code></strong>. Additionally, uninitialised non-null fields can be observed as null during construction if a superclass constructor calls an overridden method.</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"How would you prevent the deserialisation class across a 300-module codebase?" — Ban reflective JSON in the paved road, use kotlinx.serialization or Moshi codegen, add a Detekt rule failing on Gson imports, and validate DTO→domain mapping at the boundary.</li>
+      <li>"When is <code>!!</code> acceptable?" — When the invariant is genuinely enforced elsewhere and the alternative is noise, e.g. immediately after a <code>contains</code> check on a local map. Even then prefer <code>requireNotNull</code> with a message, because the message is what you'll want at 2am.</li>
+      <li>"<code>lateinit</code> vs nullable var vs <code>by lazy</code>?" — <code>lazy</code> when the value is derivable on first access; <code>lateinit</code> for framework-injected values with a clear initialisation point; nullable when absence is a legitimate state rather than a bug.</li>
+      <li>"How does this change with KMP?" — No platform types on native targets, but Objective-C interop reintroduces them on iOS; the discipline transfers.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 8</span>Generics, variance, and reified types</h2>
+  <p>Variance answers one question: <em>if</em> <code>Dog</code> <em>is a</em> <code>Animal</code>, <em>is</em> <code>Repo&lt;Dog&gt;</code> <em>a</em> <code>Repo&lt;Animal&gt;</code>? By default no (invariant), because a producer-consumer type cannot safely be either.</p>
+  <ul>
+    <li><code>out T</code> — covariant, <strong>producer</strong>. <code>T</code> may appear in return position only. <code>List&lt;out E&gt;</code>: a <code>List&lt;Dog&gt;</code> is a <code>List&lt;Animal&gt;</code> because you can only read.</li>
+    <li><code>in T</code> — contravariant, <strong>consumer</strong>. <code>T</code> in parameter position only. A <code>Comparator&lt;Animal&gt;</code> can compare dogs.</li>
+    <li><code>*</code> — star projection, "some unknown type"; safe to read as the upper bound, unsafe to write.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — invariance forces casts</div><pre>interface Mapper&lt;T, R&gt; { fun map(input: T): R }
+
+// Caller has a Mapper&lt;UserDto, User&gt; but a
+// pipeline typed Mapper&lt;Any, Any&gt; — no relation.
+fun runAll(ms: List&lt;Mapper&lt;Any, Any&gt;&gt;) { /* ... */ }
+
+// Forced to do this at every call site:
+runAll(mappers as List&lt;Mapper&lt;Any, Any&gt;&gt;)  // unchecked</pre>
+      <p class="why">Unchecked casts spread through the codebase and defeat the type system for everyone downstream.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — declare variance once</div><pre>fun interface Mapper&lt;in T, out R&gt; {
+    fun map(input: T): R
+}
+
+// Now a Mapper&lt;UserDto, User&gt; IS a Mapper&lt;UserDto, Any&gt;
+// and a Mapper&lt;Any, User&gt; IS a Mapper&lt;UserDto, User&gt;.
+fun &lt;T&gt; runAll(input: T, ms: List&lt;Mapper&lt;T, *&gt;&gt;): List&lt;Any?&gt; =
+    ms.map { it.map(input) }</pre>
+      <p class="why">Variance declared at the declaration site fixes it for every consumer, forever. This is a public-API decision: adding variance later is source-compatible, removing it is not.</p></div>
+  </div>
+
+  <h4>Reified: what it buys and what it costs</h4>
+  <p>JVM generics are erased. <code>reified</code> works by forcing the function <code>inline</code>, so the concrete type is substituted at each call site. The cost is real: every call site duplicates the body.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid</div><pre>// 400-line inline reified function, called from
+// 90 places. R8 sees 90 copies of 400 lines.
+inline fun &lt;reified T&gt; parseAndValidateAndCache(
+    json: String
+): T {
+    /* 400 lines */
+}</pre>
+      <p class="why">Method-count and APK-size explosion, worse instruction-cache behaviour, and stack traces that no longer point at one place.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — thin reified shim</div><pre>inline fun &lt;reified T&gt; parse(json: String): T =
+    parse(json, T::class.java)     // tiny, inlined
+
+// The real work is a normal function, compiled once.
+fun &lt;T&gt; parse(json: String, type: Class&lt;T&gt;): T {
+    /* 400 lines, one copy */
+}</pre>
+      <p class="why">Keep the inlined surface to the type-capturing line. This is the pattern the Kotlin stdlib itself uses.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 9</span>Inline, value classes, and what the compiler emits</h2>
+  <p><code>inline</code> exists primarily so higher-order functions do not allocate a lambda object per call, and so non-local returns work. It is not a general speed switch — inlining a function with no lambda parameters usually earns a compiler warning because the benefit is negligible.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:110px">Modifier</th><th>Effect</th><th>Use when</th></tr></thead>
+    <tbody>
+      <tr><td><code>inline</code></td><td>Body and lambda bodies copied to the call site; enables non-local return and <code>reified</code>.</td><td>Small higher-order functions called in hot paths or needing reified types.</td></tr>
+      <tr><td><code>noinline</code></td><td>That specific lambda stays a real object.</td><td>You need to store the lambda, pass it on, or make it nullable.</td></tr>
+      <tr><td><code>crossinline</code></td><td>Lambda is inlined but non-local return is forbidden.</td><td>The lambda is invoked from another context, e.g. inside a <code>Runnable</code>.</td></tr>
+      <tr><td><code>value class</code></td><td>Wrapper erased to the underlying type where possible.</td><td>Type-safe IDs and units without allocation.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — primitive obsession</div><pre>fun transfer(
+    from: String,
+    to: String,
+    amount: Long
+)
+
+// Compiles fine, ships a bug:
+transfer(to = accountA, from = accountB, amount = cents)
+transfer(userId, accountId, amount)   // wrong arg order</pre>
+      <p class="why">Every ID is a <code>String</code>, so the compiler cannot help. These bugs are found in production, usually by finance.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — value classes</div><pre>@JvmInline value class AccountId(val raw: String)
+@JvmInline value class Cents(val raw: Long) {
+    init { require(raw &gt;= 0) { "negative amount" } }
+}
+
+fun transfer(from: AccountId, to: AccountId, amount: Cents)
+
+transfer(userId, accountId, amount)  // ✗ won't compile</pre>
+      <p class="why">Zero allocation in the common case, and the entire argument-order class of bug becomes a compile error.</p></div>
+  </div>
+
+  <div class="note"><span class="lab">The value-class trap interviewers probe</span><p>The wrapper is only erased sometimes. Boxing occurs when the value class is used as a generic type argument (<code>List&lt;Cents&gt;</code>), as a nullable (<code>Cents?</code>), or where an interface type is expected. So <code>List&lt;Cents&gt;</code> allocates exactly like <code>List&lt;Long&gt;</code> boxed. Knowing <em>when</em> the optimisation disappears is the L4 signal; knowing it exists is L2.</p></div>
+
+  <h2><span class="cn">Chapter 10</span>Sealed hierarchies, data classes, and binary compatibility</h2>
+  <p>Sealed types are how you make illegal states unrepresentable. They also create a binary-compatibility hazard that only appears in modular codebases — which is exactly why it is a Staff question.</p>
+
+  <div class="code1"><div class="lab">The modelling win</div><pre>// Illegal states are impossible: no "loading with an error and data".
+sealed interface CheckoutState {
+    data object Idle : CheckoutState
+    data object Submitting : CheckoutState
+    data class Failed(val reason: FailureReason, val retryable: Boolean) : CheckoutState
+    data class Succeeded(val orderId: OrderId) : CheckoutState
+}</pre></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — boolean soup</div><pre>data class CheckoutState(
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val orderId: String? = null,
+    val isRetryable: Boolean = false,
+)
+// 16 representable combinations,
+// 4 of them meaningful. Every consumer
+// re-derives which is which.</pre>
+      <p class="why">Each new flag doubles the state space. Bugs appear as impossible UI: a spinner over an error message.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — exhaustive when</div><pre>when (state) {
+    Idle       -&gt; ShowForm()
+    Submitting -&gt; ShowSpinner()
+    is Failed  -&gt; ShowError(state.reason, state.retryable)
+    is Succeeded -&gt; ShowReceipt(state.orderId)
+}   // compiler enforces completeness</pre>
+      <p class="why">Adding a state becomes a compile error at every consumer — which is the point, and also the hazard below.</p></div>
+  </div>
+
+  <div class="q">
+    <p class="qt">Interview question · Staff-only, modular codebases</p>
+    <p class="qh">"You add a new subtype to a sealed interface in a core module. What breaks, and when?"</p>
+    <h4>Short answer</h4>
+    <p>Source compatibility breaks for every module with an exhaustive <code>when</code> — they fail to compile, which is good. Binary compatibility also breaks: modules compiled against the old hierarchy and not recompiled will throw <code>NoWhenBranchMatchedException</code> at runtime. In a monorepo where everything is rebuilt together this is a compile-time inconvenience; if you ship the module as a versioned artefact to teams that update on their own schedule, it is a runtime crash.</p>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"How do you evolve a sealed hierarchy that is part of a published SDK?" — Do not expose it as sealed. Expose an interface plus a known set of implementations and require consumers to handle an <code>Unknown</code>/else branch, or version the type.</li>
+      <li>"When is an enum better than a sealed class?" — When there is no per-case data and you need <code>values()</code>, ordinal serialisation, or <code>EnumMap</code>-style efficiency. Enums also serialise more predictably.</li>
+      <li>"What's the risk with <code>data class copy()</code> in a validated type?" — <code>copy()</code> bypasses your <code>init</code> validation logic in older Kotlin versions when the constructor is private, and it always bypasses factory-level invariants. Prefer a non-data class with explicit <code>withX</code> functions when invariants matter.</li>
+      <li>"<code>data object</code> vs <code>object</code> in a state hierarchy?" — <code>data object</code> gives you a sane <code>toString()</code> and correct <code>equals</code> semantics for free, which matters when states appear in logs and test assertions.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 11</span>Delegation, delegated properties, and scope functions</h2>
+  <p>Class delegation (<code>by</code>) is composition with compiler-generated forwarding. It is the cleanest way to add behaviour without inheritance — and it has one trap that appears in interviews constantly.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">The delegation trap</div><pre>interface Repo {
+    fun load(): List&lt;Item&gt;
+    fun loadFirst(): Item? = load().firstOrNull()
+}
+
+class Base : Repo {
+    override fun load() = fetchFromNetwork()
+}
+
+class Cached(private val b: Base) : Repo by b {
+    override fun load() = cache ?: b.load()
+}
+
+// Cached().loadFirst() does NOT use the cache.</pre>
+      <p class="why">The generated forwarder calls <code>b.loadFirst()</code>, and <code>Base</code>'s default implementation calls <em>its own</em> <code>load()</code>. Overriding a member of the delegate does not affect calls made inside the delegate. Same class of surprise as `this` escaping in Java.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — override the full surface</div><pre>class Cached(private val b: Repo) : Repo {
+    private var cache: List&lt;Item&gt;? = null
+    override fun load(): List&lt;Item&gt; =
+        cache ?: b.load().also { cache = it }
+    override fun loadFirst(): Item? =
+        load().firstOrNull()      // explicit
+}</pre>
+      <p class="why">When the interface has default methods that call other members, delegate explicitly or keep the interface free of defaults.</p></div>
+  </div>
+
+  <h4>A defensible scope-function house style</h4>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:88px">Function</th><th style="min-width:120px">Receiver / return</th><th>Use for</th></tr></thead>
+    <tbody>
+      <tr><td><code>let</code></td><td><code>it</code> / lambda result</td><td>Null-guarded transformation: <code>value?.let { transform(it) }</code>.</td></tr>
+      <tr><td><code>run</code></td><td><code>this</code> / lambda result</td><td>Computing a value from several members of one object.</td></tr>
+      <tr><td><code>apply</code></td><td><code>this</code> / receiver</td><td>Configuring a mutable object being built (mostly framework/Java types).</td></tr>
+      <tr><td><code>also</code></td><td><code>it</code> / receiver</td><td>Side effects in a chain — logging, caching — where the value passes through.</td></tr>
+      <tr><td><code>with</code></td><td><code>this</code> / lambda result</td><td>Grouping several calls on a non-null receiver you already have.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><span class="lab">Review rule worth stating in an interview</span><p>Nesting scope functions more than one level deep, or using <code>apply</code> where the object is already immutable, are the two cases worth blocking in review. Beyond that, consistency matters more than which one is "correct" — this is a cheap-to-reverse decision (Chapter 4) and should not consume team debate.</p></div>
+
+  <h2><span class="cn">Chapter 12</span>Collections, sequences, and allocation</h2>
+  <p>Every collection operator on an <code>Iterable</code> allocates a new list. A chain of five operators over 10,000 items allocates five lists of 10,000. <code>Sequence</code> makes the pipeline lazy and element-at-a-time, allocating once — but it adds per-element overhead, so on small collections it is slower.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — eager chain on a large list</div><pre>// 50k rows, called on every DB emission
+val visible = rows
+    .map { it.toUiModel() }      // 50k allocs
+    .filter { it.isVisible }      // new list
+    .sortedBy { it.rank }         // new list
+    .take(20)                     // new list</pre>
+      <p class="why">Four intermediate lists and 50k mapper calls to display 20 rows. This shows up as GC churn in a trace and as jank when it runs on the main thread.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — filter first, or push down</div><pre>// Best: let SQLite do it (index + LIMIT)
+@Query("SELECT * FROM rows WHERE visible = 1 " +
+       "ORDER BY rank LIMIT 20")
+suspend fun visibleTop(): List&lt;Row&gt;
+
+// If it must be in memory:
+val visible = rows.asSequence()
+    .filter { it.isVisible }      // cheap predicate first
+    .sortedBy { it.rank }         // terminal-ish, unavoidable
+    .take(20)
+    .map { it.toUiModel() }       // only 20 mapper calls
+    .toList()</pre>
+      <p class="why">Order matters more than laziness: mapping after filtering and taking removes 49,980 conversions. And the real Staff answer is that this belongs in the query.</p></div>
+  </div>
+  <div class="note"><span class="lab">Interview nuance</span><p><code>sorted</code> is a stateful operation — it must materialise the whole sequence, so laziness buys nothing across it. Candidates who claim "sequences are always faster for big data" get caught here. The honest rule: sequences win when the chain is long, the source is large, and the terminal operation is short-circuiting (<code>first</code>, <code>take</code>, <code>any</code>).</p></div>
+
+  <h2><span class="cn">Chapter 13</span>Java interoperability</h2>
+  <p>Most large Android codebases are mixed for years. The Staff-level skill is designing Kotlin APIs that are pleasant from Java without contorting the Kotlin.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — hostile from Java</div><pre>object AnalyticsClient {
+    fun track(
+        name: String,
+        props: Map&lt;String, Any&gt; = emptyMap(),
+        immediate: Boolean = false,
+    ) { }
+}
+
+// From Java:
+// AnalyticsClient.INSTANCE.track("x", map, false);
+// default args unusable, INSTANCE noise</pre>
+      <p class="why">Java callers must pass every argument and navigate <code>INSTANCE</code>. Nullability is also unspecified for Java's tooling if the types come from generics.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — annotate the boundary</div><pre>object AnalyticsClient {
+    @JvmStatic
+    @JvmOverloads
+    fun track(
+        name: String,
+        props: Map&lt;String, Any&gt; = emptyMap(),
+        immediate: Boolean = false,
+    ) { }
+}
+
+// From Java: AnalyticsClient.track("x");</pre>
+      <p class="why"><code>@JvmStatic</code>, <code>@JvmOverloads</code>, <code>@JvmName</code>, <code>@Throws</code> and explicit nullability annotations on the boundary make the API usable without changing the Kotlin.</p></div>
+  </div>
+  <p>Other interop facts worth having ready: Kotlin's checked-exception freedom means Java callers get no compiler warning unless you add <code>@Throws</code>; <code>internal</code> is public in the bytecode with a mangled name, so it is not a security boundary; and Kotlin's <code>List</code> is <code>java.util.List</code> at runtime, so a Java caller can mutate your "immutable" list.</p>
+
+  <h2><span class="cn">Chapter 14</span>DSLs, operators, and the overengineering line</h2>
+  <p>Type-safe builders are Kotlin's most abused feature. A DSL is justified when the domain has genuine nesting or repetition and the DSL will be used in dozens of places by people who did not write it. It is not justified to make a three-field configuration read like English.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — a private language</div><pre>screen {
+    +header { "Title" }
+    body {
+        row { col(2) { text("a") }; col(4) { text("b") } }
+    }
+} bindTo viewModel via mapper
+// unary plus, infix chains, custom operators:
+// nobody can grep for this, IDE help is poor,
+// and errors surface as "expected Unit"</pre>
+      <p class="why">Cleverness has a maintenance cost paid by everyone else. Operator overloading that is not arithmetic-shaped is the strongest smell.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — DSL with @DslMarker, plain names</div><pre>@DslMarker annotation class NavDsl
+
+@NavDsl class GraphBuilder {
+    fun screen(route: String, block: ScreenBuilder.() -&gt; Unit)
+}
+
+navGraph {
+    screen("home") { deepLink("app://home") }
+    screen("cart")  { requiresAuth() }
+}</pre>
+      <p class="why"><code>@DslMarker</code> prevents accidentally calling an outer builder's method from an inner scope — the single most confusing DSL bug. Names are ordinary functions, so IDE completion and grep work.</p></div>
+  </div>
+
+  <div class="panel">
+    <h4>Part II rapid recall</h4>
+    <ul>
+      <li>Platform types, reflection, <code>lateinit</code> and <code>!!</code> are the four NPE sources; validate at the DTO boundary.</li>
+      <li><code>out</code> = produces = return position; <code>in</code> = consumes = parameter position. Declaration-site variance is an API decision.</li>
+      <li><code>reified</code> forces inlining — keep the inlined body one line thick.</li>
+      <li>Value classes box under generics, nullability, and interface positions.</li>
+      <li>Adding a sealed subtype breaks binary compatibility for separately-compiled consumers.</li>
+      <li>Overriding a delegate's member does not affect calls made inside the delegate.</li>
+      <li>Sequences win on long chains over large sources with short-circuiting terminals; <code>sorted</code> defeats laziness.</li>
+      <li><code>internal</code> is not a security boundary; Kotlin's <code>List</code> is mutable from Java.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p1" data-p="p1"><span class="k">Previous</span><span class="t">← Part I</span></a><a class="r" href="#p3" data-p="p3"><span class="k">Next</span><span class="t">Part III — Coroutines &amp; Flow →</span></a></div>
+</section>

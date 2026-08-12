@@ -1,0 +1,283 @@
+<section class="page" id="p4">
+  <header class="phead">
+    <p class="eyebrow">Part IV</p>
+    <h1>The Android <em>Platform</em></h1>
+    <p class="deck">Internals rather than usage. Every section answers three questions: how does this work below the API, what breaks in production, and what does it imply for design.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 24</span>Process model, zygote, and Binder</h2>
+  <p>Your app is a process forked from <strong>zygote</strong>, a warm VM with the framework classes and shared resources already loaded and pages shared copy-on-write. That is why an Android process starts in tens of milliseconds rather than seconds, and why anything you add to <code>Application.onCreate</code> is paid on every cold start with no sharing.</p>
+  <p><strong>Binder</strong> is the IPC mechanism behind essentially every framework call that touches another process — <code>PackageManager</code>, <code>ActivityManager</code>, <code>ContentResolver</code>, starting activities, showing notifications. Three consequences worth naming in an interview:</p>
+  <ul>
+    <li><strong>Transactions are size-limited.</strong> The per-process Binder buffer is about 1 MB, shared across all in-flight transactions. Exceeding it throws <code>TransactionTooLargeException</code> — most often from a large <code>Bundle</code> in <code>onSaveInstanceState</code> or an oversized <code>Intent</code> extra.</li>
+    <li><strong>Binder calls are synchronous and finite.</strong> The thread pool has ~16 threads; a system_server under load makes your "cheap" call slow. Binder contention is a common and under-diagnosed ANR cause.</li>
+    <li><strong>Binder can block the main thread.</strong> <code>ContentResolver.query</code> on main is a blocking IPC, not a local call.</li>
+  </ul>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — state that will not fit</div><pre>override fun onSaveInstanceState(outState: Bundle) {
+    super.onSaveInstanceState(outState)
+    outState.putParcelableArrayList(
+        "feed", ArrayList(viewModel.allLoadedItems)  // 2,000 items
+    )
+}
+// TransactionTooLargeException, usually only on
+// devices where users scroll a lot — so it reaches production.</pre>
+      <p class="why">Saved state travels to system_server over Binder. It is for identifiers and scroll positions, not for data.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — save the key, restore the data</div><pre>// In the ViewModel:
+val listState = savedStateHandle.getStateFlow("firstVisible", 0)
+val query = savedStateHandle.getStateFlow("query", "")
+
+// Data comes back from the local database / Paging,
+// which survives process death anyway.
+val items = query.flatMapLatest { repo.page(it) }</pre>
+      <p class="why">Saved state carries the minimum needed to reconstruct — a query, an ID, a scroll index. The data itself is re-derived from disk, which is faster and unbounded.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 25</span>The main thread: Looper, MessageQueue, Choreographer</h2>
+  <p>The main thread is a loop: <code>Looper.loop()</code> pulls <code>Message</code> objects from a <code>MessageQueue</code> ordered by target timestamp and dispatches them to <code>Handler</code>s. Everything — lifecycle callbacks, input events, view invalidation, your <code>post {}</code> — is a message.</p>
+  <p><strong>Choreographer</strong> registers for the display's VSYNC signal and, once per frame, runs callbacks in a fixed order: input → animation → insets → traversal (measure, layout, draw) → commit. At 120 Hz you have 8.3 ms; at 60 Hz, 16.7 ms. Anything that overruns delays the next frame, which the user sees as jank.</p>
+
+  <pre class="mermaid">
+sequenceDiagram
+  participant D as Display VSYNC
+  participant C as Choreographer
+  participant M as MessageQueue
+  participant A as App code
+  D->>C: VSYNC (every 8.3ms @120Hz)
+  C->>M: post frame callback (async, front of queue)
+  M->>A: INPUT callbacks
+  M->>A: ANIMATION callbacks
+  M->>A: TRAVERSAL — measure / layout / draw
+  A-->>M: your 40ms JSON parse runs here
+  Note over D,A: next VSYNC missed → dropped frame
+  </pre>
+
+  <div class="note"><span class="lab">The mechanism question interviewers use to separate levels</span><p>"Why does a 40 ms operation on the main thread drop <em>three</em> frames at 60 Hz rather than one?" Because the frame it lands in is missed, and the two subsequent VSYNC pulses arrive while the thread is still busy — the messages queue up and are processed late. This is also why the frame-timeline metric to watch is <em>consecutive</em> dropped frames, not the total: three isolated drops are invisible, three consecutive ones are a visible stutter.</p></div>
+
+  <h2><span class="cn">Chapter 26</span>Activities, tasks, launch modes, and the back stack</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:135px">Launch mode</th><th>Behaviour</th><th>Where it bites</th></tr></thead>
+    <tbody>
+      <tr><td><code>standard</code></td><td>New instance every time, in the caller's task.</td><td>Duplicate screens stacked from repeated notification taps.</td></tr>
+      <tr><td><code>singleTop</code></td><td>Reuses the instance if it is already at the top; delivers <code>onNewIntent</code>.</td><td>Forgetting to handle <code>onNewIntent</code> means the new intent's data is silently ignored.</td></tr>
+      <tr><td><code>singleTask</code></td><td>One instance per task; clears everything above it on re-launch.</td><td>Wipes the user's back stack. Common cause of "the app lost my place" after a deep link.</td></tr>
+      <tr><td><code>singleInstance</code></td><td>Alone in its own task.</td><td>Breaks back navigation between your own screens; almost never correct.</td></tr>
+    </tbody>
+  </table></div>
+  <p><strong>The Staff framing:</strong> launch modes are a legacy multi-activity concern. The modern paved road is a single activity plus a navigation graph, where the back stack is application state you control rather than an OS structure you negotiate with. When an interviewer asks about launch modes, the strongest answer covers the mechanism <em>and</em> says "in a single-activity app, this reduces to how <code>onNewIntent</code> feeds the nav controller, which is a much smaller surface to get right."</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — deep link that destroys context</div><pre>&lt;activity android:name=".MainActivity"
+    android:launchMode="singleTask"&gt;
+    &lt;intent-filter&gt; ... &lt;/intent-filter&gt;
+&lt;/activity&gt;
+
+// User is 4 screens deep in checkout, taps a
+// marketing push → task cleared, checkout lost.</pre>
+      <p class="why">Silent data loss, and it correlates with revenue. It reproduces only when the app is already open, so it survives QA.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — singleTop + explicit routing policy</div><pre>&lt;activity android:name=".MainActivity"
+    android:launchMode="singleTop" /&gt;
+
+override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    val route = deepLinks.resolve(intent) ?: return
+    when (route.policy) {
+        // Interruptible content: push on top of the stack.
+        Policy.PUSH -&gt; navController.navigate(route.dest)
+        // Session-critical flow in progress: defer or confirm.
+        Policy.DEFER -&gt; if (navController.inCheckout()) pending = route
+                        else navController.navigate(route.dest)
+    }
+}</pre>
+      <p class="why">The routing policy is a product decision made explicit in code, not an emergent property of a manifest attribute.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 27</span>Lifecycle, configuration change, and process death</h2>
+  <p>There are three tiers of state, and confusing them causes most "it works on my phone" bugs.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Mechanism</th><th style="min-width:170px">Survives</th><th>Does not survive</th></tr></thead>
+    <tbody>
+      <tr><td><code>ViewModel</code> (in memory)</td><td>Configuration change, back-stack navigation within its scope.</td><td>Process death, the user leaving its scope.</td></tr>
+      <tr><td><code>SavedStateHandle</code> / <code>rememberSaveable</code></td><td>Configuration change <em>and</em> process death.</td><td>Force-stop by the user, "clear data", swipe-away on most OEMs.</td></tr>
+      <tr><td>Disk — Room, DataStore</td><td>Everything short of uninstall.</td><td>Uninstall, clear data.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="q">
+    <p class="qt">Interview question · the classic that separates L2 from L4</p>
+    <p class="qh">"Walk me through what survives process death, and how you'd test it."</p>
+    <h4>Why interviewers ask this</h4>
+    <p>Because virtually no team tests it, and virtually every app has bugs there. It reaches production because the reproduction requires the OS to kill a backgrounded process — which happens constantly on low-end devices and almost never on a developer's Pixel.</p>
+    <h4>Deep explanation</h4>
+    <p>When the system needs memory it kills your process but keeps the <em>task record</em>. When the user returns, Android recreates the activity and delivers the saved <code>Bundle</code>. Your <code>ViewModel</code> is gone; your <code>SavedStateHandle</code> is repopulated from that bundle; your singletons are freshly constructed with default state; any in-flight coroutine is gone without notice; static caches are empty.</p>
+    <p>The bug class this produces: state held in a singleton that was initialised during login (a session object, a feature-flag cache, an in-memory user), which after process death is empty while the UI assumes it is populated — presenting as a logout, a crash, or an empty screen on resume from background.</p>
+    <h4>How to test it</h4>
+    <div class="code1"><div class="lab">Reproducing process death deterministically</div><pre># 1. Put the app in the background (Home, not Back).
+# 2. Kill the process without clearing the task record:
+adb shell am kill com.example.app
+# 3. Return via Recents. Note: `am force-stop` is WRONG —
+#    it clears the task and does not exercise restoration.
+
+# In CI, exercise the saved-state path directly:
+@Test fun surviving_process_death() {
+    val handle = SavedStateHandle(mapOf("query" to "shoes"))
+    val vm = SearchViewModel(handle, repo)
+    assertEquals("shoes", vm.state.value.query)
+}
+
+# Instrumented: StateRestorationTester (Compose) or
+# recreate() plus a simulated bundle round-trip.</pre></div>
+    <h4>Follow-up questions</h4>
+    <ol>
+      <li>"Why is <code>am force-stop</code> the wrong command?" — It clears the task, so you get a fresh launch rather than a restoration, which is precisely the path you are trying to test.</li>
+      <li>"Developer options has 'Don't keep activities' — is that equivalent?" — No. It destroys the activity but keeps the process, so ViewModels and singletons survive. It tests configuration-change-shaped restoration only. Both tests are needed and they cover different bugs.</li>
+      <li>"How would you make this class of bug impossible rather than tested?" — Forbid mutable app state in singletons by convention and lint; make the session a persisted, observable source of truth so a fresh process reads it from disk rather than assuming it was populated.</li>
+      <li>"What's the cost of putting everything in <code>SavedStateHandle</code>?" — It goes over Binder into system_server, so it is size-capped and slow; oversizing it produces <code>TransactionTooLargeException</code>. Save keys, not payloads.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 28</span>Context, and leak topology</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Need</th><th>Correct context</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Inflating a view, theming, dialogs, <code>startActivity</code> without a flag</td><td>Activity</td><td>Requires the themed, windowed context.</td></tr>
+      <tr><td>Singletons, DI graph, WorkManager, DataStore, database</td><td>Application</td><td>Lifetime matches the object holding it.</td></tr>
+      <tr><td>Broadcast registration in a UI</td><td>Activity, unregistered in the mirrored callback</td><td>Application-context registration outlives the screen — a leak plus wasted work.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — the two-line leak</div><pre>object ImageCache {
+    private lateinit var context: Context
+    fun init(c: Context) { context = c }   // Activity passed in
+}
+
+class MainActivity : Activity() {
+    override fun onCreate(b: Bundle?) {
+        ImageCache.init(this)   // leaks the Activity forever
+    }
+}</pre>
+      <p class="why">A static field holding an Activity retains its entire view hierarchy — often several megabytes — for the process lifetime, and every rotation adds another.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — application context, injected</div><pre>@Singleton
+class ImageCache @Inject constructor(
+    @ApplicationContext private val context: Context,
+)</pre>
+      <p class="why">DI makes the lifetime explicit and reviewable. <code>context.applicationContext</code> is the manual equivalent when DI is unavailable.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 29</span>Intents, PendingIntents, and package visibility</h2>
+  <p>A <code>PendingIntent</code> is a token granting <em>another process</em> permission to execute an intent <em>as your app</em>. That is why mutability flags are mandatory on modern Android and why getting them wrong is a real vulnerability.</p>
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — mutable, implicit</div><pre>val pi = PendingIntent.getActivity(
+    ctx, 0,
+    Intent(ACTION_HANDLE),          // implicit
+    PendingIntent.FLAG_MUTABLE      // fillable by the receiver
+)</pre>
+      <p class="why">A mutable PendingIntent wrapping an implicit intent can be filled in by a malicious app and redirected to a component of your app that it should not reach — with your app's permissions. This is the intent-redirection class of vulnerability.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — immutable and explicit</div><pre>val pi = PendingIntent.getActivity(
+    ctx, requestCode,
+    Intent(ctx, DetailActivity::class.java).apply {
+        putExtra(EXTRA_ID, id)
+    },
+    PendingIntent.FLAG_IMMUTABLE or
+        PendingIntent.FLAG_UPDATE_CURRENT
+)</pre>
+      <p class="why">Use <code>FLAG_MUTABLE</code> only where the platform requires it (direct-reply notifications, some Bubbles APIs), and then always with an explicit component.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 30</span>Background execution in the restriction era</h2>
+  <p>Modern Android's default position is that a backgrounded app should not run. The design question is therefore never "how do I run in the background" but "what class of work is this, and what guarantee does it actually need?"</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Work class</th><th style="min-width:170px">Mechanism</th><th>Guarantee / cost</th></tr></thead>
+    <tbody>
+      <tr><td>Deferrable, must eventually happen</td><td><code>WorkManager</code> with constraints</td><td>Survives process death and reboot. Timing is not guaranteed — Doze can delay it hours.</td></tr>
+      <tr><td>User-visible, ongoing, now</td><td>Foreground service with a declared type</td><td>Runs while visible; requires a justified <code>foregroundServiceType</code> and survives Play review scrutiny.</td></tr>
+      <tr><td>Short, tied to a visible screen</td><td>Coroutine in <code>viewModelScope</code></td><td>No durability. Dies with the screen and the process.</td></tr>
+      <tr><td>Must run at an exact wall-clock time</td><td><code>AlarmManager</code> exact alarms</td><td>Requires a special permission; only alarms and calendar-type use cases are policy-defensible.</td></tr>
+      <tr><td>Server-initiated</td><td>FCM high-priority message</td><td>Wakes the app even in Doze; abuse degrades your delivery priority.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Avoid — enqueueing duplicate work</div><pre>fun scheduleSync() {
+    WorkManager.getInstance(ctx).enqueue(
+        OneTimeWorkRequestBuilder&lt;SyncWorker&gt;().build()
+    )
+}
+// Called from onStart(). After ten launches,
+// ten sync workers race each other.</pre>
+      <p class="why">Duplicate concurrent syncs cause write conflicts, duplicate analytics, and battery drain. Extremely common in real codebases.</p></div>
+    <div class="cbox yes"><div class="lab">Prefer — unique work with an explicit policy</div><pre>fun scheduleSync() {
+    WorkManager.getInstance(ctx).enqueueUniqueWork(
+        "sync",
+        ExistingWorkPolicy.KEEP,        // or REPLACE — decide deliberately
+        OneTimeWorkRequestBuilder&lt;SyncWorker&gt;()
+            .setConstraints(
+                Constraints(requiredNetworkType = NetworkType.CONNECTED)
+            )
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, SECONDS)
+            .build()
+    )
+}</pre>
+      <p class="why"><code>KEEP</code> means "a sync is already pending, that's enough"; <code>REPLACE</code> means "the new request supersedes it". Choosing consciously — and saying why in the interview — is the L4 signal.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 31</span>Permissions and the modern privacy surface</h2>
+  <ul>
+    <li><strong>Runtime permissions</strong> are revocable at any time, including while your app is backgrounded. Every permission-gated call needs a "not granted right now" path, not just a request-at-startup flow.</li>
+    <li><strong>Notifications are permission-gated</strong> from Android 13. Requesting at first launch produces the worst grant rates; request in context, after the user has done something that makes the value obvious.</li>
+    <li><strong>Scoped storage and the photo picker</strong> removed the legitimate reasons to request broad media permissions. Asking for them now is both a UX cost and a Play review risk.</li>
+    <li><strong>Background location</strong> requires a separate, later grant and a policy justification. Designing a feature that needs it is a product decision with a compliance cost, and a Staff engineer should say so before the design is committed.</li>
+    <li><strong>Package visibility</strong> means <code>queryIntentActivities</code> returns a filtered list unless you declare <code>&lt;queries&gt;</code>. A "share sheet is empty on Android 11+" bug is almost always this.</li>
+  </ul>
+
+  <h2><span class="cn">Chapter 32</span>Notifications, deep links, and app links</h2>
+  <p>Deep-link routing in a 200-screen app should be a first-class subsystem, not a manifest of intent filters. The Staff-level design has four properties:</p>
+  <ol>
+    <li><strong>One resolver.</strong> A single component maps URI → typed route, so links are testable without launching an activity.</li>
+    <li><strong>Validated input.</strong> Any ID or URL in the link is untrusted. A link that opens an in-app WebView at an arbitrary URL is a phishing vector; allow-list the host.</li>
+    <li><strong>Auth-aware.</strong> Routes declare whether they require a session; the router handles the login-then-continue flow centrally rather than each screen re-implementing it.</li>
+    <li><strong>Verified App Links.</strong> With a hosted <code>assetlinks.json</code>, your app opens the URL without a disambiguation dialog — and no other app can claim it.</li>
+  </ol>
+
+  <div class="code1"><div class="lab">A testable deep-link resolver</div><pre>sealed interface Route {
+    val requiresAuth: Boolean
+    data class Product(val id: ProductId) : Route { override val requiresAuth = false }
+    data class Order(val id: OrderId)     : Route { override val requiresAuth = true }
+}
+
+class DeepLinkResolver(private val allowedHosts: Set&lt;String&gt;) {
+    fun resolve(uri: Uri): Route? {
+        if (uri.host !in allowedHosts) return null          // untrusted
+        val seg = uri.pathSegments
+        return when {
+            seg.size == 2 &amp;&amp; seg[0] == "p" -&gt; ProductId.parse(seg[1])?.let(Route::Product)
+            seg.size == 2 &amp;&amp; seg[0] == "o" -&gt; OrderId.parse(seg[1])?.let(Route::Order)
+            else -&gt; null
+        }
+    }
+}
+
+// Unit-testable in milliseconds, no emulator:
+@Test fun rejects_foreign_host() =
+    assertNull(resolver.resolve(Uri.parse("https://evil.com/p/123")))</pre></div>
+
+  <div class="panel">
+    <h4>Part IV rapid recall</h4>
+    <ul>
+      <li>Binder transactions share a ~1 MB per-process buffer; saved state travels over it.</li>
+      <li>Choreographer runs input → animation → traversal per VSYNC; a 40 ms block drops consecutive frames.</li>
+      <li><code>singleTask</code> clears the stack above it — the cause of "the deep link lost my checkout."</li>
+      <li>ViewModel survives rotation; <code>SavedStateHandle</code> survives process death; only disk survives everything.</li>
+      <li><code>adb shell am kill</code> tests process death; <code>force-stop</code> does not.</li>
+      <li><code>PendingIntent</code> must be <code>FLAG_IMMUTABLE</code> with an explicit component unless the platform demands otherwise.</li>
+      <li>Durable work is <code>WorkManager</code> with unique-work policy and backoff — never a bare coroutine.</li>
+      <li>Deep links are untrusted input; validate host and IDs in one testable resolver.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p3" data-p="p3"><span class="k">Previous</span><span class="t">← Part III</span></a><a class="r" href="#p5" data-p="p5"><span class="k">Next</span><span class="t">Part V — Jetpack →</span></a></div>
+</section>
