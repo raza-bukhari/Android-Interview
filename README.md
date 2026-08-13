@@ -1,8 +1,9 @@
 # The Staff Android Interview
 
 A book-length interview preparation guide for **Staff, Senior Staff, Principal and Mobile Architect**
-level Android engineers — 30 parts, 179 chapters, 18 mobile system designs, ~400 rapid-fire questions,
-12 mock interview loops, and roughly 120 good-vs-bad code comparisons.
+level Android engineers — 35 parts, 241 chapters, 18 mobile system designs, ~400 rapid-fire questions,
+60 graded greenfield build tasks, 120+ rapid-recall definitions, 12 mock interview loops, and 117
+good-vs-bad code comparisons.
 
 It is a single self-contained static page: no build tooling, no dependencies, no tracking.
 
@@ -14,7 +15,7 @@ It is a single self-contained static page: no build tooling, no dependencies, no
 src/            Source fragments — one file per part, plus shell and scripts
   00-head.html    <title>, theme bootstrap, stylesheet, sidebar markup
   01-front.html   Contents, competency matrix, study roadmap
-  p01..p30.html   Parts I–XXX
+  p01..p35.html   Parts I–XXXV
   99-tail.html    All runtime JavaScript
 build.ps1       Assembles both build targets
 serve.ps1       Tiny local static server for previewing (http://localhost:8099)
@@ -69,14 +70,14 @@ Vercel does not run PowerShell, so it cannot build the site itself.
 
 ## Design notes
 
-**Why one file.** The whole book ships in a single ~636 KB document (~206 KB gzipped, less over
-Brotli). That is a deliberate trade: one request, then every one of the 179 chapters is instant and
+**Why one file.** The whole book ships in a single ~868 KB document (~276 KB gzipped, less over
+Brotli). That is a deliberate trade: one request, then every one of the 241 chapters is instant and
 works offline, with no navigation waterfall. Splitting into per-part files would cut first load to
 roughly 15 KB but add a network round trip to every chapter and break offline reading. If the site
 is ever used primarily on slow connections for a single chapter at a time, that trade flips.
 
 **Runtime work is deferred.** Syntax highlighting decorates the visible page first and fills in the
-remaining 32 pages during `requestIdleCallback`. The search index is built on first use rather than
+remaining 37 pages during `requestIdleCallback`. The search index is built on first use rather than
 at load.
 
 **Syntax highlighting** is a small inlined tokeniser using Android Studio's own token colours —

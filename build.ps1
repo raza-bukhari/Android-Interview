@@ -16,7 +16,7 @@ $root = $PSScriptRoot
 
 # ---------------------------------------------------------------- assemble
 $order = @('00-head.html', '01-front.html')
-1..31 | ForEach-Object { $order += ('p{0:d2}.html' -f $_) }
+1..35 | ForEach-Object { $order += ('p{0:d2}.html' -f $_) }
 $order += '99-tail.html'
 
 $sb = New-Object System.Text.StringBuilder

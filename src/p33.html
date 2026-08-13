@@ -1,0 +1,408 @@
+<section class="page" id="p33">
+  <header class="phead">
+    <p class="eyebrow">Part XXXIII</p>
+    <h1>Greenfield <em>build tasks</em></h1>
+    <p class="deck">Sixty build-from-nothing exercises, graded by difficulty and timed the way an interviewer times them. Each one names the signal it produces and the trap that catches strong candidates — because on a greenfield task the code is rarely what decides the round.</p>
+  </header>
+
+  <div class="legend">
+    <span><span class="diff d1">Starter</span> 30–60 min · one concept, correctly</span>
+    <span><span class="diff d2">Core</span> 1–3 h · a real feature with real failure modes</span>
+    <span><span class="diff d3">Advanced</span> half day · concurrency, scale or platform depth</span>
+    <span><span class="diff d4">Staff+</span> open · architecture, org impact, no single right answer</span>
+  </div>
+
+  <h2><span class="cn">Chapter 205</span>How greenfield tasks are actually graded</h2>
+  <p>A greenfield task is the most misread format in an Android loop. Candidates treat it as "show me you can build things", which is the one thing your résumé already established. The interviewer is measuring something narrower: <strong>what you do with an under-specified problem and a clock</strong>.</p>
+  <p>The scoring, in the order it is applied:</p>
+  <ol>
+    <li><strong>Scoping in the first five minutes.</strong> What did you cut, and did you say so out loud? A candidate who builds 40% of the problem deliberately outscores one who builds 70% by accident every time.</li>
+    <li><strong>The boundary you drew first.</strong> Whatever you wrote before the UI — the repository interface, the state model, the error type — is the strongest single signal in the round, because it is the decision that is expensive to reverse.</li>
+    <li><strong>Failure modes, unprompted.</strong> Empty, offline, slow, rotated, process-killed, permission-revoked. Naming them costs a sentence; discovering them under follow-up costs the level.</li>
+    <li><strong>Whether it runs.</strong> Genuinely fourth. A compiling skeleton with honest gaps beats a half-finished monolith that does not build.</li>
+    <li><strong>What you would do next.</strong> The closing sentence. Candidates who end with "that's it" lose points that candidates who end with "given another two hours I'd add X, and here's what worries me" collect for free.</li>
+  </ol>
+
+  <div class="note"><span class="lab">The sentence that changes the round</span><p>Before writing anything: <em>"Here's what I'm going to build, here's what I'm deliberately not building, and here's the assumption I'm making that I'd normally verify with product."</em> Say it aloud, and every later shortcut reads as a decision rather than an omission. This single habit moves more candidates from L3 to L4 than any technical knowledge in this book.</p></div>
+
+  <h3>The rubric applied to any task in this part</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:96px">Level</th><th>What the submission looks like</th></tr></thead>
+    <tbody>
+      <tr><td><span class="chip c2">L2</span></td><td>Feature works on the happy path. One layer — logic in the composable or the Activity. Errors are a toast. No tests.</td></tr>
+      <tr><td><span class="chip c3">L3</span></td><td>Layered, injected, testable. Loading and error states modelled. A few unit tests on the state holder. Sensible library choices.</td></tr>
+      <tr><td><span class="chip c4">L4</span></td><td>The scoping conversation happened first. Failure modes are designed for, not caught. State model makes illegal states unrepresentable. Tests target the risky logic, not the getters. The README names what was cut and why.</td></tr>
+      <tr><td><span class="chip c5">L5</span></td><td>Treats the exercise as a template others will copy: a documented boundary, a migration story, a measurable success criterion, and an explicit statement of the conditions under which this design becomes wrong.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 206</span>Foundations — one concept, done properly</h2>
+  <p>These look trivial and are not. Each has exactly one trap, and the trap is what is being measured.</p>
+
+  <div class="taskgrid">
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Unit converter</span><span class="tm">40 min</span></div>
+      <p>Two text fields, a unit picker, live bidirectional conversion.</p>
+      <p class="sig"><b>Tests</b> State hoisting and whether you can keep two inputs consistent without an infinite update loop.</p>
+      <p class="sig trap"><b>Trap</b> Two-way binding where each field updates the other. Model a single source value plus which field is focused; derive the other.</p></div>
+
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Countdown timer with laps</span><span class="tm">45 min</span></div>
+      <p>Start, pause, reset, lap list. Must survive rotation and backgrounding.</p>
+      <p class="sig"><b>Tests</b> Whether time lives in the ViewModel and whether you store an instant or a duration.</p>
+      <p class="sig trap"><b>Trap</b> Counting ticks. Background the app and the count drifts. Store the start timestamp and derive elapsed on every frame.</p></div>
+
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Notes list with local persistence</span><span class="tm">60 min</span></div>
+      <p>Create, edit, delete notes. Room-backed. Survives process death.</p>
+      <p class="sig"><b>Tests</b> Room basics, reactive queries, and whether the list re-renders without manual refresh.</p>
+      <p class="sig trap"><b>Trap</b> Re-querying after each write instead of collecting a <code>Flow</code>. Also: deleting without an undo affordance.</p></div>
+
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Search-as-you-type over a local list</span><span class="tm">40 min</span></div>
+      <p>Filter 5,000 in-memory items as the user types.</p>
+      <p class="sig"><b>Tests</b> <code>debounce</code>, <code>distinctUntilChanged</code>, <code>flatMapLatest</code>, and whether filtering happens off the main thread.</p>
+      <p class="sig trap"><b>Trap</b> Filtering inside the composable body, so every recomposition re-scans the list.</p></div>
+
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Form with validation</span><span class="tm">50 min</span></div>
+      <p>Email, password, confirm. Inline errors, submit disabled until valid.</p>
+      <p class="sig"><b>Tests</b> State modelling. Whether validation is a pure function you can unit test.</p>
+      <p class="sig trap"><b>Trap</b> Showing "invalid email" before the user has finished typing. Validate on blur or after first submit, not on every keystroke.</p></div>
+
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Theme + language switcher</span><span class="tm">45 min</span></div>
+      <p>Light/dark/system and two locales, persisted, applied without a restart.</p>
+      <p class="sig"><b>Tests</b> DataStore, <code>AppCompatDelegate</code> / <code>AppLocaleManager</code>, and configuration handling.</p>
+      <p class="sig trap"><b>Trap</b> <code>SharedPreferences</code> read on the main thread at startup, and hardcoded strings that cannot switch locale.</p></div>
+
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Onboarding pager with skip</span><span class="tm">40 min</span></div>
+      <p>Three pages, dots, skip, shown only on first launch.</p>
+      <p class="sig"><b>Tests</b> "First launch" as persisted state rather than an in-memory flag.</p>
+      <p class="sig trap"><b>Trap</b> A boolean in a singleton. Kill the process and onboarding returns forever.</p></div>
+
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Expandable nested list</span><span class="tm">45 min</span></div>
+      <p>Categories that expand to items, with animated open/close.</p>
+      <p class="sig"><b>Tests</b> Flattening a tree into a lazy list rather than nesting scrollables.</p>
+      <p class="sig trap"><b>Trap</b> <code>LazyColumn</code> inside <code>LazyColumn</code> — an unbounded-height crash. Flatten to one list with type markers.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 207</span>Data, networking and pagination</h2>
+
+  <div class="taskgrid">
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Paginated feed from a public API</span><span class="tm">2 h</span></div>
+      <p>Infinite scroll over a REST endpoint, with loading, error and retry.</p>
+      <p class="sig"><b>Tests</b> Paging 3, load-state handling, and whether a database appears at all.</p>
+      <p class="sig trap"><b>Trap</b> Paginating into an in-memory list, so rotation refetches from page one. See Part XXXII.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Master–detail with shared cache</span><span class="tm">2 h</span></div>
+      <p>List screen and detail screen backed by the same store; detail opens instantly from cache then refreshes.</p>
+      <p class="sig"><b>Tests</b> Single source of truth, and stale-while-revalidate as a deliberate pattern.</p>
+      <p class="sig trap"><b>Trap</b> Passing the whole object through the navigation argument. Pass an id; read from the store.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Token refresh with a single flight</span><span class="tm">2 h</span></div>
+      <p>OkHttp <code>Authenticator</code> that refreshes on 401 — once, no matter how many requests fail together.</p>
+      <p class="sig"><b>Tests</b> Concurrency under a thundering herd, and mutex discipline.</p>
+      <p class="sig trap"><b>Trap</b> Five parallel refreshes, four of which invalidate the token the fifth just obtained, logging the user out.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Typed error model end to end</span><span class="tm">90 min</span></div>
+      <p>Map transport failures to a domain error type the UI can switch on exhaustively.</p>
+      <p class="sig"><b>Tests</b> Whether <code>HttpException</code> and <code>IOException</code> leak into the UI layer.</p>
+      <p class="sig trap"><b>Trap</b> <code>Result&lt;T&gt;</code> everywhere, including where failure is not a state the screen can render.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Multi-source search</span><span class="tm">2 h</span></div>
+      <p>Query three endpoints in parallel, merge, show partial results as they land, never block on the slowest.</p>
+      <p class="sig"><b>Tests</b> <code>coroutineScope</code> vs <code>supervisorScope</code>, and partial-failure UX.</p>
+      <p class="sig trap"><b>Trap</b> <code>awaitAll</code>, so one failing source produces an empty screen instead of two-thirds of the answer.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Bidirectional (cursor) pagination</span><span class="tm">3 h</span></div>
+      <p>A chat-style list that pages both up and down from an arbitrary anchor message.</p>
+      <p class="sig"><b>Tests</b> <code>RemoteMediator</code> PREPEND handling, remote keys, and scroll-anchor preservation.</p>
+      <p class="sig trap"><b>Trap</b> Prepending shifts content under the user's thumb. You need a stable anchor and reversed layout, not just a working query.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">GraphQL-backed screen with normalised cache</span><span class="tm">3 h</span></div>
+      <p>Two screens sharing entities; an edit on one updates the other with no refetch.</p>
+      <p class="sig"><b>Tests</b> Cache normalisation as a concept, not a library feature.</p>
+      <p class="sig trap"><b>Trap</b> Treating the response document as the cache key, so the same entity exists twice with divergent values.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Resumable chunked upload</span><span class="tm">4 h</span></div>
+      <p>Upload a 200 MB file across process death, network loss and app restart.</p>
+      <p class="sig"><b>Tests</b> Durable progress, chunk idempotency, WorkManager foreground service, and honest progress reporting.</p>
+      <p class="sig trap"><b>Trap</b> Progress held in memory. Kill the app at 90% and the upload starts over — the defect the exercise exists to expose.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 208</span>Offline-first and synchronisation</h2>
+
+  <div class="taskgrid">
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Read-only offline cache</span><span class="tm">2 h</span></div>
+      <p>A list that renders fully with the network disabled, and refreshes when it returns.</p>
+      <p class="sig"><b>Tests</b> Whether the UI reads the database or the network.</p>
+      <p class="sig trap"><b>Trap</b> An <code>if (isOnline)</code> branch. Correct designs have no such check anywhere.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Offline write queue (outbox)</span><span class="tm">4 h</span></div>
+      <p>Toggle favourites offline; converge on reconnect; survive reboot.</p>
+      <p class="sig"><b>Tests</b> Durable-before-dispatch, idempotency keys, error classification. Part XXXII in one sitting.</p>
+      <p class="sig trap"><b>Trap</b> Refresh deleting rows that still carry unsent local intent.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Two-device convergence</span><span class="tm">4 h</span></div>
+      <p>Same account on two devices, both edit offline, both reconnect. Define and implement the conflict policy.</p>
+      <p class="sig"><b>Tests</b> Whether you have a stated policy and know why device clocks disqualify last-write-wins.</p>
+      <p class="sig trap"><b>Trap</b> Comparing <code>System.currentTimeMillis()</code> across devices. Clocks are user-settable.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Delta sync with tombstones</span><span class="tm">4 h</span></div>
+      <p>Sync token in, changed and deleted entities out, applied atomically.</p>
+      <p class="sig"><b>Tests</b> Deletion propagation — the half of sync that most designs forget.</p>
+      <p class="sig trap"><b>Trap</b> No tombstones, so remotely deleted rows live locally forever.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Offline-capable collaborative editor</span><span class="tm">open</span></div>
+      <p>Two users editing one document offline. Design the convergence model and build a vertical slice.</p>
+      <p class="sig"><b>Tests</b> Whether you can articulate operational transform versus CRDT trade-offs and pick one with reasons.</p>
+      <p class="sig trap"><b>Trap</b> Reaching for a CRDT library without noting the memory cost of tombstone growth on a mobile device.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Sync engine as a shared platform module</span><span class="tm">open</span></div>
+      <p>Generalise the outbox so eight feature teams use it without reading its source.</p>
+      <p class="sig"><b>Tests</b> API design for other engineers; what you refuse to make configurable.</p>
+      <p class="sig trap"><b>Trap</b> Every knob exposed. A platform module's value is the decisions it takes away.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 209</span>Compose and design systems</h2>
+
+  <div class="taskgrid">
+    <div class="task t1"><div class="th"><span class="diff d1">Starter</span><span class="tn">Pixel-accurate card from a mock</span><span class="tm">45 min</span></div>
+      <p>Reproduce a supplied design, including dark mode and dynamic type.</p>
+      <p class="sig"><b>Tests</b> Whether you use theme tokens or literals.</p>
+      <p class="sig trap"><b>Trap</b> <code>Color(0xFF1B4A8F)</code> inline. Invisible until dark mode, then everything is unreadable.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Reusable component with a slot API</span><span class="tm">90 min</span></div>
+      <p>A card that other teams compose into, with no boolean flags in its signature.</p>
+      <p class="sig"><b>Tests</b> Slot-based API design and the <code>modifier</code> parameter convention.</p>
+      <p class="sig trap"><b>Trap</b> <code>showIcon: Boolean, showBadge: Boolean, isCompact: Boolean</code> — the flag explosion a slot API exists to prevent.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Adaptive layout for phone, tablet and fold</span><span class="tm">2 h</span></div>
+      <p>List-detail that becomes two panes, and survives folding mid-flow.</p>
+      <p class="sig"><b>Tests</b> Window size classes, and state preservation across a layout change.</p>
+      <p class="sig trap"><b>Trap</b> A raw <code>screenWidthDp &gt; 600</code> check that misses runtime folding.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Complex list with mixed item types</span><span class="tm">2 h</span></div>
+      <p>Headers, ads, cards and footers in one scroller, sticky headers, smooth at 120 Hz.</p>
+      <p class="sig"><b>Tests</b> <code>key</code>, <code>contentType</code>, and keeping derivations out of the item body.</p>
+      <p class="sig trap"><b>Trap</b> Date formatters and sums computed per item per frame.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Custom layout and drawing</span><span class="tm">3 h</span></div>
+      <p>A radial menu or flow layout via the <code>Layout</code> composable, plus a <code>Canvas</code> chart.</p>
+      <p class="sig"><b>Tests</b> Measure/place mechanics and the three phases.</p>
+      <p class="sig trap"><b>Trap</b> Measuring a child twice without <code>SubcomposeLayout</code>, which throws at runtime.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Gesture-driven swipe-to-dismiss with undo</span><span class="tm">3 h</span></div>
+      <p>Velocity-aware swipe, spring-back, snackbar undo, correct on interruption.</p>
+      <p class="sig"><b>Tests</b> Gesture and animation coordination, and undo as a state machine rather than a delay.</p>
+      <p class="sig trap"><b>Trap</b> Deleting after a 3-second <code>delay</code>. Navigate away and the row is gone with no undo.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Screenshot-tested component library</span><span class="tm">4 h</span></div>
+      <p>Ten components, each with light, dark, RTL and large-font baselines in CI.</p>
+      <p class="sig"><b>Tests</b> Whether you treat visual regression as infrastructure with a flake budget.</p>
+      <p class="sig trap"><b>Trap</b> Baselines that differ per machine. Pin the renderer and the font.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Design system for 40 engineers</span><span class="tm">open</span></div>
+      <p>Token pipeline, component API rules, deprecation policy, adoption metric.</p>
+      <p class="sig"><b>Tests</b> Governance, not components. How a token change reaches 200 screens safely.</p>
+      <p class="sig trap"><b>Trap</b> Building components and calling it a system. The system is the rules and the migration path.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 210</span>Concurrency, streams and real time</h2>
+
+  <div class="taskgrid">
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Live location tracker</span><span class="tm">2 h</span></div>
+      <p>Stream updates into a map, stop cleanly when the screen stops, resume on return.</p>
+      <p class="sig"><b>Tests</b> <code>callbackFlow</code>, <code>awaitClose</code>, <code>repeatOnLifecycle</code>, conflation.</p>
+      <p class="sig trap"><b>Trap</b> The callback outliving the collector — a leak plus battery drain nobody notices for weeks.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">WebSocket chat with reconnect</span><span class="tm">4 h</span></div>
+      <p>Live messages, exponential backoff with jitter, gap-fill via REST after a reconnect, ordered delivery.</p>
+      <p class="sig"><b>Tests</b> Transport as a <code>Flow</code>, and the realisation that reconnect leaves a hole that must be backfilled.</p>
+      <p class="sig trap"><b>Trap</b> Reconnecting and resuming the stream without fetching what was missed while disconnected.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Job scheduler with priorities and cancellation</span><span class="tm">3 h</span></div>
+      <p>Bounded parallelism, priority queue, per-job cancellation, cooperative shutdown.</p>
+      <p class="sig"><b>Tests</b> Structured concurrency under pressure; <code>Semaphore</code> and <code>Channel</code> discipline.</p>
+      <p class="sig trap"><b>Trap</b> Cancelling a job cancels the scope and takes down its siblings.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Reactive shopping cart</span><span class="tm">3 h</span></div>
+      <p>Cart, live pricing, stock checks, promo codes — all derived, all consistent, no duplicated state.</p>
+      <p class="sig"><b>Tests</b> <code>combine</code>, derived state, and avoiding read-modify-write on a <code>StateFlow</code>.</p>
+      <p class="sig trap"><b>Trap</b> Storing the total. It drifts from the lines within a day. Derive it.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Rate-limited API client</span><span class="tm">2 h</span></div>
+      <p>Ten requests per second across the whole app, cancellable, fair, no busy-waiting.</p>
+      <p class="sig"><b>Tests</b> Token bucket, suspension rather than blocking, releasing the lock before delaying.</p>
+      <p class="sig trap"><b>Trap</b> <code>delay</code> while holding the mutex, serialising every caller behind one waiter.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Event pipeline with backpressure</span><span class="tm">open</span></div>
+      <p>Analytics events from many producers, batched, persisted, retried, bounded memory under a burst.</p>
+      <p class="sig"><b>Tests</b> An explicit overflow policy — the question most candidates never ask.</p>
+      <p class="sig trap"><b>Trap</b> An unbounded buffer. It is an OOM with a delay fuse.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 211</span>Media, camera and device capability</h2>
+
+  <div class="taskgrid">
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Image picker with crop and upload</span><span class="tm">2 h</span></div>
+      <p>Pick, crop, downscale, upload with progress.</p>
+      <p class="sig"><b>Tests</b> Photo Picker over storage permission, and scaled decoding.</p>
+      <p class="sig trap"><b>Trap</b> Requesting <code>READ_EXTERNAL_STORAGE</code> when the Photo Picker needs no permission at all.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Audio recorder with waveform</span><span class="tm">3 h</span></div>
+      <p>Record, live amplitude waveform, pause, playback, survive interruption by a call.</p>
+      <p class="sig"><b>Tests</b> Audio focus, foreground service, lifecycle of a hardware resource.</p>
+      <p class="sig trap"><b>Trap</b> Not releasing the recorder on interruption, so the mic stays held and the next start fails.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Camera with real-time analysis</span><span class="tm">4 h</span></div>
+      <p>CameraX preview plus a barcode analyser at 30 fps without dropping frames.</p>
+      <p class="sig"><b>Tests</b> Backpressure strategy on the analyser and closing every <code>ImageProxy</code>.</p>
+      <p class="sig trap"><b>Trap</b> Forgetting <code>imageProxy.close()</code> — the pipeline stalls after exactly three frames.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Offline video player with caching</span><span class="tm">4 h</span></div>
+      <p>Media3 playback, partial-download cache, background audio, notification controls.</p>
+      <p class="sig"><b>Tests</b> Media session, cache eviction policy, and playback across process death.</p>
+      <p class="sig trap"><b>Trap</b> An unbounded disk cache that quietly consumes the device.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">On-device ML inference</span><span class="tm">3 h</span></div>
+      <p>Classify camera frames locally, keeping the main thread free and the battery intact.</p>
+      <p class="sig"><b>Tests</b> Threading around a native interpreter, and throttling inference to a useful rate.</p>
+      <p class="sig trap"><b>Trap</b> Inferring on every frame. Ten per second is plenty and a third of the power.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 212</span>Platform, background and integration</h2>
+
+  <div class="taskgrid">
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Deep links and app links</span><span class="tm">2 h</span></div>
+      <p>Route external URLs to the right screen with a correct back stack, from cold start.</p>
+      <p class="sig"><b>Tests</b> A single testable resolver, and synthesised parent destinations.</p>
+      <p class="sig trap"><b>Trap</b> Treating the URL as trusted. Validate the host; parse ids into typed values.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Push notifications with actions</span><span class="tm">2 h</span></div>
+      <p>FCM receipt, channels, inline reply, correct deep link, Android 13 permission flow.</p>
+      <p class="sig"><b>Tests</b> <code>PendingIntent</code> flags and asking for <code>POST_NOTIFICATIONS</code> in context.</p>
+      <p class="sig trap"><b>Trap</b> <code>FLAG_MUTABLE</code> with an implicit intent — an intent-redirection vulnerability.</p></div>
+
+    <div class="task t2"><div class="th"><span class="diff d2">Core</span><span class="tn">Home-screen widget</span><span class="tm">2 h</span></div>
+      <p>Glance widget showing live data, refreshed on a budget, tappable into the app.</p>
+      <p class="sig"><b>Tests</b> Update cadence versus battery, and reading the same store as the app.</p>
+      <p class="sig trap"><b>Trap</b> A 15-minute periodic refresh nobody asked for.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Biometric-gated secure storage</span><span class="tm">3 h</span></div>
+      <p>Encrypt a token with a Keystore key that requires user authentication.</p>
+      <p class="sig"><b>Tests</b> <code>CryptoObject</code>, key invalidation on biometric enrolment, and a real fallback.</p>
+      <p class="sig trap"><b>Trap</b> Biometrics flipping a boolean. Patch the branch and the gate is gone.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Wear OS companion</span><span class="tm">4 h</span></div>
+      <p>A watch surface sharing data with the phone, functioning while the phone is away.</p>
+      <p class="sig"><b>Tests</b> Data layer sync and designing for an intermittent peer.</p>
+      <p class="sig trap"><b>Trap</b> Assuming the phone is reachable. It frequently is not.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Accessibility-complete checkout</span><span class="tm">3 h</span></div>
+      <p>A three-step flow fully operable by TalkBack and switch access, at 200% font.</p>
+      <p class="sig"><b>Tests</b> Semantics, focus order, live regions, and touch targets.</p>
+      <p class="sig trap"><b>Trap</b> Adding <code>contentDescription</code> everywhere, including decorative images, so TalkBack becomes unusable noise.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">In-app purchase with server verification</span><span class="tm">open</span></div>
+      <p>Play Billing, entitlement as server truth, restore, refunds, offline grace.</p>
+      <p class="sig"><b>Tests</b> Treating the client as untrusted, and designing for the refund case.</p>
+      <p class="sig trap"><b>Trap</b> Granting entitlement on the client's purchase callback. Trivially spoofable.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 213</span>Architecture and platform engineering</h2>
+
+  <div class="taskgrid">
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Modularise a single-module app</span><span class="tm">4 h</span></div>
+      <p>Split a 60-screen monolith into a layered graph with enforced boundaries.</p>
+      <p class="sig"><b>Tests</b> Dependency direction and mechanical enforcement, not just folders.</p>
+      <p class="sig trap"><b>Trap</b> A <code>:common</code> module everything depends on. You renamed the monolith.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Feature-flag and experiment framework</span><span class="tm">4 h</span></div>
+      <p>Remote flags, local overrides, typed access, consistent within a session, testable.</p>
+      <p class="sig"><b>Tests</b> Flag lifecycle — the removal plan is the interesting half.</p>
+      <p class="sig trap"><b>Trap</b> Flags that re-evaluate mid-session, so the UI changes under the user.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Type-safe navigation for 40 screens</span><span class="tm">3 h</span></div>
+      <p>Compile-time-checked routes, deep-link parity, no feature module importing another.</p>
+      <p class="sig"><b>Tests</b> Decoupling navigation from feature modules.</p>
+      <p class="sig trap"><b>Trap</b> String routes assembled by hand — a runtime crash per typo.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Analytics and observability layer</span><span class="tm">open</span></div>
+      <p>A typed event schema, sampling, PII policy, offline buffering, and mobile SLIs that alert.</p>
+      <p class="sig"><b>Tests</b> Whether you can name what you would alert on and what you would deliberately not measure.</p>
+      <p class="sig trap"><b>Trap</b> Logging everything. Cost and PII exposure both scale with volume.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">KMP evaluation and a vertical slice</span><span class="tm">open</span></div>
+      <p>Share one real domain across Android and iOS; report honestly on the cost.</p>
+      <p class="sig"><b>Tests</b> Organisational reasoning — build times, hiring, debugging across the boundary.</p>
+      <p class="sig trap"><b>Trap</b> Selling the code-sharing percentage. Interviewers want the tax, not the brochure.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Cut CI from 45 minutes to 10</span><span class="tm">open</span></div>
+      <p>Profile the graph, cache, parallelise, shard tests, define what runs per-PR versus nightly.</p>
+      <p class="sig"><b>Tests</b> Measuring before optimising, and trading confidence against latency explicitly.</p>
+      <p class="sig trap"><b>Trap</b> Deleting tests to hit the number.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Greenfield app for a 30-engineer org</span><span class="tm">open</span></div>
+      <p>Day-one architecture: modules, DI, navigation, state, testing, release, and the written rules.</p>
+      <p class="sig"><b>Tests</b> Which decisions are one-way doors, and what you defer on purpose.</p>
+      <p class="sig trap"><b>Trap</b> Deciding everything up front. The Staff answer names what it is deliberately leaving open.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 214</span>Take-home projects</h2>
+  <p>Full-weekend scope. The README is graded as heavily as the code — often more, because it is the only place your reasoning is visible.</p>
+
+  <div class="taskgrid">
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Podcast client</span><span class="tm">8–12 h</span></div>
+      <p>Search, subscribe, download for offline, background playback, resume position across devices.</p>
+      <p class="sig"><b>Tests</b> Nearly everything: paging, downloads, media session, sync, notifications.</p>
+      <p class="sig trap"><b>Trap</b> Attempting all of it. Ship three features properly and document the rest as scoped-out.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Expense tracker with receipts</span><span class="tm">8 h</span></div>
+      <p>Camera capture, offline entry, categories, monthly aggregation, CSV export.</p>
+      <p class="sig"><b>Tests</b> Money handling, aggregation queries, and file sharing via <code>FileProvider</code>.</p>
+      <p class="sig trap"><b>Trap</b> Currency in <code>Double</code>. Use minor units as <code>Long</code>, and say why in the README.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Fitness tracker</span><span class="tm">10 h</span></div>
+      <p>Foreground-service GPS session, live stats, route map, history, battery-conscious.</p>
+      <p class="sig"><b>Tests</b> Long-running background work and location accuracy versus power.</p>
+      <p class="sig trap"><b>Trap</b> Maximum-accuracy GPS at 1 Hz for an hour. Adaptive intervals, and measure the drain.</p></div>
+
+    <div class="task t3"><div class="th"><span class="diff d3">Advanced</span><span class="tn">Marketplace app</span><span class="tm">10 h</span></div>
+      <p>Browse, filter, cart, checkout, orders — with optimistic cart edits and typed errors.</p>
+      <p class="sig"><b>Tests</b> A realistic multi-screen state model and idempotent checkout.</p>
+      <p class="sig trap"><b>Trap</b> A retried order placement without an idempotency key — a double charge.</p></div>
+
+    <div class="task t4"><div class="th"><span class="diff d4">Staff+</span><span class="tn">Messaging app</span><span class="tm">12 h+</span></div>
+      <p>Offline send queue, delivery states, bidirectional paging, presence, reconnection gap-fill.</p>
+      <p class="sig"><b>Tests</b> The hardest common mobile problem. Ordering, idempotency and convergence in one.</p>
+      <p class="sig trap"><b>Trap</b> Ordering by client timestamp. Two devices, two clocks, a scrambled conversation.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 215</span>Scoping any greenfield task in five minutes</h2>
+  <p>The same six questions work on every task above. Ask them aloud; the answers are the design.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:180px">Question</th><th>What the answer decides</th></tr></thead>
+    <tbody>
+      <tr><td>Read-only, or does the user write?</td><td>Writes bring durability, optimism, idempotency and conflicts. This one answer can triple the scope.</td></tr>
+      <tr><td>Must it work offline?</td><td>Yes means the database is the source of truth and the whole architecture inverts.</td></tr>
+      <tr><td>How much data, and how does it grow?</td><td>Decides pagination, indexing and whether the list can be held in memory at all.</td></tr>
+      <tr><td>Who else changes this data?</td><td>Another device, a worker or a push handler forces reactive reads rather than one-shot loads.</td></tr>
+      <tr><td>What must never be lost?</td><td>Anything the user believes is saved must reach disk before the network is attempted.</td></tr>
+      <tr><td>What is the deadline?</td><td>Determines what you cut — and cutting explicitly is the behaviour being scored.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XXXIII rapid recall</h4>
+    <ul>
+      <li>Say what you are not building before you build anything.</li>
+      <li>The boundary you write first is the strongest signal in the round.</li>
+      <li>Name failure modes unprompted: empty, offline, slow, rotated, killed, revoked.</li>
+      <li>A deliberate 40% beats an accidental 70%.</li>
+      <li>Compiling with honest gaps beats broken with ambition.</li>
+      <li>Writes plus offline is the combination that triples scope — price it out loud.</li>
+      <li>Money in minor units as <code>Long</code>; ordering by server key, never a device clock.</li>
+      <li>Unbounded anything — buffer, cache, outbox, retry — is a bug with a delay fuse.</li>
+      <li>On a take-home the README carries the reasoning; it is graded as heavily as the code.</li>
+      <li>Close with what you would do next and what worries you.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p32" data-p="p32"><span class="k">Previous</span><span class="t">← Part XXXII</span></a><a class="r" href="#p34" data-p="p34"><span class="k">Next</span><span class="t">Part XXXIV — Rapid Recall →</span></a></div>
+</section>

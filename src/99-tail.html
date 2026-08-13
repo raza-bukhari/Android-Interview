@@ -496,8 +496,9 @@
   /* ---------------------------------------------------------------
      10. Rapid-fire self-test mode
   ----------------------------------------------------------------*/
-  var rf = document.getElementById('p27');
-  if (rf) {
+  /* Any page carrying data-selftest gets the toggle. Off by default, so a
+     page is never left with permanently blurred answers if the JS is absent. */
+  $$('.page[data-selftest]').forEach(function (rf) {
     var bar = document.createElement('div');
     bar.className = 'sttoggle';
     bar.innerHTML = '<button type="button" aria-pressed="false">Self-test: off</button>'
@@ -506,12 +507,13 @@
     var head = rf.querySelector('.phead');
     head.parentNode.insertBefore(bar, head.nextSibling);
 
+    var key = 'sai-selftest-' + rf.id;
     var setMode = function (on) {
       rf.classList.toggle('selftest', on);
       btn.setAttribute('aria-pressed', String(on));
       btn.textContent = 'Self-test: ' + (on ? 'on' : 'off');
       if (!on) $$('tr.revealed', rf).forEach(function (r) { r.classList.remove('revealed'); });
-      store.set('sai-selftest', on);
+      store.set(key, on);
     };
     btn.addEventListener('click', function () { setMode(!rf.classList.contains('selftest')); });
     rf.addEventListener('click', function (e) {
@@ -519,8 +521,8 @@
       var tr = e.target.closest && e.target.closest('tbody tr');
       if (tr && rf.contains(tr)) tr.classList.toggle('revealed');
     });
-    if (store.get('sai-selftest', false)) setMode(true);
-  }
+    if (store.get(key, false)) setMode(true);
+  });
 
   /* ---------------------------------------------------------------
      11. Theme toggle (auto → light → dark). "auto" defers to the

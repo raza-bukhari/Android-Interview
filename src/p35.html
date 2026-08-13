@@ -1,0 +1,756 @@
+<section class="page" id="p35">
+  <header class="phead">
+    <p class="eyebrow">Part XXXV</p>
+    <h1>Best practices <em>by area</em></h1>
+    <p class="deck">Fifty-odd side-by-side pairs organised by the thing you are actually working on — Kotlin, coroutines, Flow, Compose, Fragments, ViewModels, DI, Room, networking, background work, testing and build. Part XXXI catalogued platform defects; this part is the working reference for the code you write today.</p>
+  </header>
+
+  <div class="note"><span class="lab">The rule behind the rules</span><p>Almost every pair below reduces to one of four questions. <em>What lifetime does this belong to?</em> <em>What happens when it fails?</em> <em>Who else can change this at the same time?</em> <em>How would I test it without a device?</em> If you can ask those four about any snippet in review, you will independently rediscover most of this part — which is the point, because the API surface changes every year and those questions do not.</p></div>
+
+  <h2><span class="cn">Chapter 225</span>Kotlin — types and API design</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — primitive obsession</div><pre>fun transfer(from: String, to: String, amount: Double)
+
+transfer(to, from, 10.0)     // compiles. wrong direction, wrong money type.</pre>
+      <p class="why">Every argument is a <code>String</code>, so the type system cannot catch a swap — and this shape of bug reaches production because it is invisible in review. <code>Double</code> for money compounds it: <code>0.1 + 0.2</code> is not <code>0.3</code>, and rounding errors accumulate into reconciliation tickets.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — make the wrong call not compile</div><pre>@JvmInline value class AccountId(val raw: String)
+@JvmInline value class Minor(val cents: Long)   // never Double for money
+
+fun transfer(from: AccountId, to: AccountId, amount: Minor)</pre>
+      <p class="why"><code>value class</code> costs nothing at runtime — it erases to the underlying type — and converts a class of runtime bug into a compile error. The argument to make in review: this is not ceremony, it is the cheapest possible test.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — illegal states are representable</div><pre>data class UiState(
+    val isLoading: Boolean = false,
+    val data: List&lt;Item&gt;? = null,
+    val error: String? = null,
+)
+// loading AND error AND data — what does the screen render?</pre>
+      <p class="why">Three independent fields encode eight states, of which perhaps three are meaningful. Every consumer then invents its own precedence rules, and two screens reading the same state render differently.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — a closed set of real states</div><pre>sealed interface UiState {
+    data object Loading : UiState
+    data class Ready(val items: List&lt;Item&gt;, val refreshing: Boolean) : UiState
+    data class Failed(val reason: ErrorReason) : UiState
+}
+
+when (state) {          // exhaustive; the compiler enforces completeness
+    Loading -&gt; Skeleton()
+    is Ready -&gt; List(state.items)
+    is Failed -&gt; Error(state.reason)
+}</pre>
+      <p class="why">Note <code>refreshing</code> lives inside <code>Ready</code> — a refresh with content on screen is a different state from a cold load, and modelling it there is what lets the UI degrade instead of blanking.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a sealed class as a namespace</div><pre>sealed class Result&lt;T&gt; {
+    class Success&lt;T&gt;(val data: T) : Result&lt;T&gt;()
+    class Error&lt;T&gt;(val e: Throwable) : Result&lt;T&gt;()
+}
+// Error&lt;User&gt; and Error&lt;Order&gt; are different types for no reason</pre>
+      <p class="why">The type parameter is meaningless on the failure branch, so every mapping function needs a pointless cast, and variance is wrong: <code>Result&lt;Dog&gt;</code> is not a <code>Result&lt;Animal&gt;</code>.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — variance and a non-generic failure</div><pre>sealed interface Outcome&lt;out T&gt; {
+    data class Ok&lt;T&gt;(val value: T) : Outcome&lt;T&gt;
+    data class Err(val reason: ErrorReason) : Outcome&lt;Nothing&gt;
+}</pre>
+      <p class="why"><code>out T</code> makes <code>Outcome&lt;Dog&gt;</code> usable as <code>Outcome&lt;Animal&gt;</code>, and <code>Nothing</code> lets one <code>Err</code> instance satisfy every call site. This is the standard shape — recognising it is a Kotlin-depth signal.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — <code>data class</code> in a published API</div><pre>data class Config(val host: String, val port: Int)
+// v2 adds a field: every copy() call site in every module breaks</pre>
+      <p class="why"><code>copy</code> and <code>componentN</code> are generated from the constructor, so adding a parameter — even with a default — is a binary-incompatible change. For a library or a shared module this forces a lockstep upgrade across the whole org.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — a builder or a regular class at the boundary</div><pre>class Config private constructor(val host: String, val port: Int) {
+    class Builder {
+        var host: String = "localhost"; var port: Int = 443
+        fun build() = Config(host, port)
+    }
+}</pre>
+      <p class="why">Use <code>data class</code> freely <em>inside</em> a module; think twice at a boundary other teams compile against. The distinction is binary compatibility, not style.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 226</span>Kotlin — collections and performance</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — an eager chain over a large collection</div><pre>val names = users                 // 100k users
+    .filter { it.active }         // allocates a 60k list
+    .map { it.name }              // allocates a 60k list
+    .take(20)                     // …to use twenty</pre>
+      <p class="why">Each operator materialises a full intermediate list, so this allocates roughly 120,000 objects to produce twenty. On a scroll frame that is a guaranteed jank spike and a GC pause.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — lazy when the chain is long or the data is big</div><pre>val names = users.asSequence()
+    .filter { it.active }
+    .map { it.name }
+    .take(20)
+    .toList()                     // one allocation, 20 elements examined</pre>
+      <p class="why">Sequences process element-by-element and short-circuit. The honest caveat, worth volunteering: for small collections or a single operator, sequences are <em>slower</em> — the iterator overhead dominates. Rule of thumb: two or more operators over hundreds of items.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — quadratic lookup hidden in a loop</div><pre>orders.forEach { order -&gt;
+    val user = users.first { it.id == order.userId }   // O(n) per order
+    render(order, user)
+}</pre>
+      <p class="why">O(n×m). With 1,000 orders and 5,000 users that is five million comparisons on the main thread. It is invisible in a test fixture of ten rows and catastrophic in production — the classic "slow only for our biggest customers" bug.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — index once, look up in constant time</div><pre>val byId = users.associateBy { it.id }        // O(n) once
+orders.forEach { order -&gt;
+    val user = byId[order.userId] ?: return@forEach
+    render(order, user)
+}</pre>
+      <p class="why">Also note the explicit miss branch. <code>first { }</code> throws on no match; a lookup that returns <code>null</code> forces you to decide what a dangling reference means instead of crashing on it.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — mutable state leaked through a getter</div><pre>class Cart {
+    val items = mutableListOf&lt;Item&gt;()     // anyone can mutate
+}
+cart.items.clear()                        // from anywhere, silently</pre>
+      <p class="why">Exposing a mutable collection means the class cannot maintain any invariant, and no reader can trust a value it holds. It also makes concurrent modification a live possibility with no lock to point at.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — expose the read-only view</div><pre>class Cart {
+    private val _items = mutableListOf&lt;Item&gt;()
+    val items: List&lt;Item&gt; get() = _items.toList()   // or persistent list
+
+    fun add(item: Item) { _items += item; recalculate() }
+}</pre>
+      <p class="why">The backing-field-plus-immutable-view convention is the same one used for <code>StateFlow</code>, and for the same reason: exactly one writer. Prefer a genuinely immutable snapshot over a cast, since <code>List</code> is only read-only by convention.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 227</span>Kotlin — nullability and errors</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — null as every kind of absence</div><pre>suspend fun findUser(id: String): User?     // not found? offline? bad id?
+
+val user = findUser(id)
+if (user == null) showError("Something went wrong")</pre>
+      <p class="why">One <code>null</code> collapses three distinct outcomes that need three distinct UIs: an empty state, a retry affordance, and a bug report. The user gets "something went wrong" for a search that simply had no results.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — name the outcomes</div><pre>sealed interface UserLookup {
+    data class Found(val user: User) : UserLookup
+    data object NotFound : UserLookup
+    data class Unavailable(val cause: ErrorReason) : UserLookup
+}</pre>
+      <p class="why"><code>null</code> is fine when there is exactly one reason for absence and it needs no explanation. The moment the caller would ask "why?", it needs a type.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — <code>!!</code> and blanket catch</div><pre>val id = intent.getStringExtra("id")!!        // crash, no context
+
+try { risky() } catch (e: Exception) { Log.e(TAG, "failed") }</pre>
+      <p class="why">The <code>!!</code> crashes with no indication of which extra was missing or who launched the Activity. The blanket catch is worse: it swallows <code>CancellationException</code>, hides programming errors alongside expected failures, and leaves the app in an undefined state while claiming to have handled something.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — assert with a message, catch what you can handle</div><pre>val id = checkNotNull(intent.getStringExtra("id")) {
+    "DetailActivity launched without EXTRA_ID from ${callingActivity}"
+}
+
+try { risky() }
+catch (e: CancellationException) { throw e }
+catch (e: IOException) { showRetry() }        // an outcome you can act on</pre>
+      <p class="why"><code>checkNotNull</code> with a message turns a crash report into a diagnosis. And a catch clause should name the exception you have a plan for — anything broader is a decision to continue in a state you have not reasoned about.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 228</span>Coroutines — scopes and lifetime</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a scope with no owner</div><pre>class SyncManager {
+    fun start() {
+        GlobalScope.launch { while (true) { sync(); delay(60_000) } }
+    }
+}</pre>
+      <p class="why"><code>GlobalScope</code> has no lifetime, so nothing can cancel this, nothing knows it failed, and every call to <code>start()</code> adds another copy. It also opts out of structured concurrency entirely — the one guarantee coroutines exist to provide.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — an injected scope that something owns</div><pre>class SyncManager @Inject constructor(
+    @ApplicationScope private val scope: CoroutineScope,
+) {
+    private var job: Job? = null
+    fun start() {
+        job?.cancel()                     // idempotent
+        job = scope.launch { … }
+    }
+}</pre>
+      <p class="why">An application scope is legitimate for work that must outlive any screen — but it must be injected so a test can replace it, and each starter must be idempotent. "Which scope?" is really "what should cancel this?", and that question always has an answer.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — one failure takes down the batch</div><pre>coroutineScope {
+    sources.forEach { launch { refresh(it) } }   // one throws…
+}                                                // …all are cancelled</pre>
+      <p class="why">Independent refreshes are not one indivisible result, but <code>coroutineScope</code> treats them as one: a single flaky source cancels the other nine and the user sees nothing refresh.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — supervise independent children</div><pre>supervisorScope {
+    sources.map { src -&gt;
+        async { runCatchingNonCancellation { refresh(src) } }
+    }.awaitAll()
+}
+// then render what succeeded, mark what didn't</pre>
+      <p class="why">Choose by asking whether a partial result is meaningful. Rendering nine of ten sources is useful; half a bank transfer is not. That question — not a habit — is what selects the scope.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — the dispatcher chosen at the call site</div><pre>viewModelScope.launch(Dispatchers.IO) {   // caller guesses
+    val data = repo.load()                 // …which may itself switch
+    _state.value = data                    // now writing state off-main
+}</pre>
+      <p class="why">Main-safety becomes a convention every caller must remember, and forgetting it is silent. Worse, the state write now happens on an IO thread, which is fine for <code>StateFlow</code> and a crash for a View.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — main-safety owned by the function that blocks</div><pre>// repository:
+suspend fun load(): Data = withContext(io) { blockingRead() }
+
+// ViewModel — no dispatcher, because it needs none:
+viewModelScope.launch { _state.value = repo.load() }</pre>
+      <p class="why">A <code>suspend</code> function should be safe to call from any dispatcher. Once that holds, ViewModels never mention dispatchers, and the injected <code>io</code> makes the repository a JVM test.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 229</span>Coroutines — cancellation and exceptions</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — <code>runCatching</code> in coroutine code</div><pre>viewModelScope.launch {
+    runCatching { repo.save(draft) }         // catches Throwable…
+        .onFailure { showError() }           // …including cancellation
+}</pre>
+      <p class="why"><code>runCatching</code> catches <code>Throwable</code>, so a cleared ViewModel reports a save failure to a screen that no longer exists, and the coroutine machinery is told the cancellation was handled. The same defect hides in <code>catch (e: Exception)</code>.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — rethrow cancellation, always</div><pre>suspend inline fun &lt;T&gt; runCatchingNonCancellation(block: () -&gt; T): Result&lt;T&gt; =
+    try { Result.success(block()) }
+    catch (e: CancellationException) { throw e }
+    catch (e: Throwable) { Result.failure(e) }</pre>
+      <p class="why">Write it once, ban <code>runCatching</code> in coroutine code with a lint rule, and the whole class of bug disappears. Naming this unprompted in a code-review round is a strong Kotlin-depth signal.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — cleanup that cannot run</div><pre>try {
+    upload(file)
+} finally {
+    api.releaseSlot(id)      // a suspend call — throws immediately
+}                            // if the job was cancelled</pre>
+      <p class="why">After cancellation every suspension point throws, so a suspending call inside <code>finally</code> fails before doing anything. The server-side slot leaks, and the failure is invisible because the exception is swallowed as ordinary cancellation.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — <code>NonCancellable</code> for cleanup only</div><pre>try {
+    upload(file)
+} finally {
+    withContext(NonCancellable) {
+        withTimeout(5_000) { api.releaseSlot(id) }
+    }
+}</pre>
+      <p class="why">Scope it to the cleanup, never around the work itself, and bound it with a timeout — otherwise a cancelled screen can hang on a cleanup that never returns.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — an uncancellable loop</div><pre>viewModelScope.launch(Dispatchers.Default) {
+    for (frame in frames) { analyse(frame) }   // pure CPU, never suspends
+}</pre>
+      <p class="why">Cancellation is cooperative and this loop never suspends, so leaving the screen does not stop it. The work runs to completion against a dead ViewModel, holding its captured references alive.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — cooperate explicitly</div><pre>viewModelScope.launch(Dispatchers.Default) {
+    for (frame in frames) {
+        ensureActive()          // cheap; throws if cancelled
+        analyse(frame)
+    }
+}</pre>
+      <p class="why">Any CPU-bound loop longer than a frame needs a cooperation point. <code>ensureActive()</code> is nearly free; <code>yield()</code> additionally lets other coroutines run, which matters on a shared dispatcher.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 230</span>Flow — operators and sharing</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a cold flow collected many times</div><pre>class Repo {
+    fun user(): Flow&lt;User&gt; = flow { emit(api.fetchUser()) }
+}
+// three composables collect it → three network calls</pre>
+      <p class="why"><code>Flow</code> is cold: each collector re-executes the whole builder. This is the mechanism behind "why does my API get called five times on this screen", and it worsens as the screen grows.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — one source, shared deliberately</div><pre>// Best: make the database the shared source.
+fun user(): Flow&lt;User&gt; = dao.observeUser()      // Room dedupes naturally
+
+// Otherwise share explicitly, with an owner:
+val user: StateFlow&lt;User?&gt; = flow { emit(api.fetchUser()) }
+    .stateIn(scope, SharingStarted.WhileSubscribed(5_000), null)</pre>
+      <p class="why">Sharing needs a scope, and a scope means an owner — so decide who owns it rather than sprinkling <code>shareIn</code>. A single database-backed source is usually the better answer because it also survives process death.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — stale work not cancelled</div><pre>query.collect { q -&gt;
+    val results = repo.search(q)     // previous search still running
+    _state.update { it.copy(results = results) }
+}</pre>
+      <p class="why">Every keystroke starts a search and none are cancelled, so responses race: a slow query for "an" can land after a fast one for "android" and overwrite it. The user watches the results flicker backwards.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — debounce, then switch</div><pre>val results = query
+    .debounce(300)
+    .distinctUntilChanged()
+    .flatMapLatest { q -&gt; repo.search(q) }   // cancels the previous
+    .stateIn(viewModelScope, WhileSubscribed(5_000), emptyList())</pre>
+      <p class="why"><code>flatMapLatest</code> guarantees the newest query wins by cancelling the older one, which is both correct and cheaper. <code>debounce</code> then removes the calls nobody needed.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a leaked listener</div><pre>fun locations(): Flow&lt;Location&gt; = callbackFlow {
+    val l = LocationListener { trySend(it) }
+    manager.requestUpdates(l)
+    // no awaitClose — the flow completes immediately, listener stays
+}</pre>
+      <p class="why">Without <code>awaitClose</code> the builder returns at once and the flow completes, but the listener is never unregistered: GPS keeps running and the callback holds its captures forever. A battery complaint with no obvious cause.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — <code>awaitClose</code> is mandatory</div><pre>fun locations(): Flow&lt;Location&gt; = callbackFlow {
+    val l = LocationListener { trySend(it) }
+    manager.requestUpdates(l)
+    awaitClose { manager.removeUpdates(l) }
+}.conflate()                       // drop stale fixes under backpressure</pre>
+      <p class="why"><code>awaitClose</code> both keeps the flow alive and provides the unregister hook. <code>trySend</code> rather than <code>send</code> because a callback is not a coroutine and must not block; <code>conflate</code> because a stale position has no value.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — <code>SharedFlow</code> for one-shot UI events</div><pre>private val _nav = MutableSharedFlow&lt;Route&gt;(replay = 1)
+val nav = _nav.asSharedFlow()
+// rotation re-collects → replays → navigates twice</pre>
+      <p class="why"><code>replay = 1</code> re-delivers on every new subscriber, so a configuration change navigates a second time. With <code>replay = 0</code> the opposite bug appears: an event emitted while the screen is stopped is dropped entirely.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — a channel for exactly-once delivery</div><pre>private val _events = Channel&lt;UiEvent&gt;(Channel.BUFFERED)
+val events = _events.receiveAsFlow()   // buffers while stopped, replays never</pre>
+      <p class="why">Reserve <code>SharedFlow</code> for genuinely multicast signals with several independent observers. One consumer that must not miss and must not repeat is precisely a <code>Channel</code>.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 231</span>Compose — state and effects</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — side effects in the composable body</div><pre>@Composable
+fun Screen(vm: VM) {
+    val state by vm.state.collectAsState()
+    vm.trackScreenView()               // fires on every recomposition
+    if (state.done) navController.navigate("next")   // and again, and again
+}</pre>
+      <p class="why">A composable body may run many times per frame, may be cancelled, and may run in parallel. Analytics fire dozens of times and the navigation call re-enters mid-composition, corrupting the back stack.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — effects, keyed by what should retrigger them</div><pre>LaunchedEffect(Unit) { vm.trackScreenView() }     // once per entry
+
+LaunchedEffect(Unit) {
+    lifecycle.repeatOnLifecycle(STARTED) {
+        vm.events.collect { if (it is Navigate) navController.navigate(it.route) }
+    }
+}</pre>
+      <p class="why">The rule: the composable body describes UI and does nothing else. Anything that touches the world outside belongs in an effect whose keys state exactly when it should restart.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a stale capture in a long-lived effect</div><pre>@Composable
+fun Timer(onTimeout: () -&gt; Unit) {
+    LaunchedEffect(onTimeout) {        // restarts on every recomposition
+        delay(10_000); onTimeout()      // …so the timer never fires
+    }
+}</pre>
+      <p class="why">A lambda parameter is a new instance on each recomposition, so keying on it restarts the effect continuously and the delay never elapses. Keying on <code>Unit</code> instead fixes the restart but captures the <em>first</em> lambda forever — a stale callback pointing at old state.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — <code>rememberUpdatedState</code></div><pre>@Composable
+fun Timer(onTimeout: () -&gt; Unit) {
+    val current by rememberUpdatedState(onTimeout)
+    LaunchedEffect(Unit) {             // runs once…
+        delay(10_000); current()        // …but calls the latest lambda
+    }
+}</pre>
+      <p class="why">This is the canonical answer to "an effect that must not restart but must not go stale". It is asked verbatim in Compose-heavy loops.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — state that dies at the wrong moment</div><pre>var draft by remember { mutableStateOf("") }   // lost on rotation
+
+val items = viewModel.repo.loadSync()          // re-fetched every recomposition</pre>
+      <p class="why">Two different lifetime errors. <code>remember</code> survives recomposition but not configuration change, so the user's half-typed message vanishes on rotation. And a blocking load in the body re-runs on every frame.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — pick the lifetime deliberately</div><pre>// survives rotation and process death, Bundle-sized:
+var draft by rememberSaveable { mutableStateOf("") }
+
+// survives rotation, arbitrary size, owned by the ViewModel:
+val items by viewModel.items.collectAsStateWithLifecycle()</pre>
+      <p class="why">Three lifetimes, three tools: recomposition → <code>remember</code>; configuration change → <code>rememberSaveable</code> or a ViewModel; process death → saved state or disk. Naming which one a value needs is the whole decision.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 232</span>Compose — performance and API design</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — reading state too early</div><pre>@Composable
+fun Header(scroll: ScrollState) {
+    // recomposes on EVERY scroll pixel
+    Box(Modifier.offset(y = (scroll.value / 2).dp).alpha(
+        if (scroll.value &gt; 100) 0.5f else 1f))
+}</pre>
+      <p class="why">Reading <code>scroll.value</code> in composition invalidates this composable on every frame of a scroll, so all three phases re-run for what is purely a visual offset. Recomposition counts look terrible and the fix is not "memoize harder".</p></div>
+    <div class="cbox yes"><div class="lab">Practice — defer the read to layout or draw</div><pre>@Composable
+fun Header(scroll: ScrollState) {
+    val faded by remember { derivedStateOf { scroll.value &gt; 100 } }
+    Box(Modifier
+        .offset { IntOffset(0, scroll.value / 2) }   // lambda → layout phase
+        .graphicsLayer { alpha = if (faded) 0.5f else 1f })  // draw phase
+}</pre>
+      <p class="why">The lambda overloads read state in a later phase, so composition is skipped entirely. <code>derivedStateOf</code> collapses hundreds of scroll values into two boolean changes. This pair is the highest-value Compose performance idiom.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — unstable parameters defeat skipping</div><pre>@Composable
+fun ItemRow(item: Item, tags: List&lt;String&gt;, onClick: () -&gt; Unit)
+// List is an interface — could be mutable — so it is unstable;
+// the row recomposes even when nothing about it changed.</pre>
+      <p class="why">One unstable parameter makes the whole composable non-skippable, and the cost multiplies down the tree. <code>List</code>, <code>Map</code>, <code>Set</code> and any class from a module without the Compose compiler are all unstable by default.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — stable types at the boundary</div><pre>@Immutable
+data class ItemUi(val id: String, val title: String,
+                  val tags: ImmutableList&lt;String&gt;)   // kotlinx.collections.immutable
+
+@Composable
+fun ItemRow(item: ItemUi, onClick: () -&gt; Unit)</pre>
+      <p class="why">Verify rather than guess: run the compiler metrics report and read which composables are marked skippable. Strong skipping mode softens this, but a stable UI model is still the design that scales — and it belongs to the UI layer, not the domain.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — boolean-flag component API</div><pre>@Composable
+fun AppCard(title: String, subtitle: String?, icon: ImageVector?,
+            showBadge: Boolean, isCompact: Boolean, isSelectable: Boolean,
+            trailingText: String?, onClick: (() -&gt; Unit)?)</pre>
+      <p class="why">Every new consumer adds a parameter, combinations multiply beyond what anyone can test, and the component ends up encoding eight teams' layout decisions. This is how a design system becomes the thing teams work around.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — slots, and a modifier parameter</div><pre>@Composable
+fun AppCard(
+    modifier: Modifier = Modifier,      // first optional param, by convention
+    leading: @Composable (() -&gt; Unit)? = null,
+    trailing: @Composable (() -&gt; Unit)? = null,
+    content: @Composable ColumnScope.() -&gt; Unit,
+)</pre>
+      <p class="why">Slots let callers supply arbitrary content without the component knowing about it, so the API stops growing. The <code>modifier</code> parameter is not optional practice: without it callers cannot size, pad or add semantics, and will fork the component instead.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 233</span>Fragments and Activities</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a binding that outlives its view</div><pre>class ListFragment : Fragment() {
+    private lateinit var binding: FragmentListBinding   // never nulled
+    override fun onCreateView(...) = FragmentListBinding
+        .inflate(inflater).also { binding = it }.root
+}</pre>
+      <p class="why">The fragment outlives its view across a back-stack traversal, so the binding — and the entire view hierarchy it references — leaks for as long as the fragment is retained. Returning to the fragment then touches a destroyed hierarchy.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — clear it in <code>onDestroyView</code></div><pre>private var _binding: FragmentListBinding? = null
+private val binding get() = checkNotNull(_binding) { "view is destroyed" }
+
+override fun onDestroyView() {
+    super.onDestroyView()
+    _binding = null
+}</pre>
+      <p class="why">The check message turns the eventual misuse into a diagnosis rather than an NPE. A delegate that does this automatically is worth writing once per codebase — this is boilerplate that is always identical and always forgotten.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — fragments talking to each other directly</div><pre>(parentFragment as FilterHost).onFilterChosen(filter)
+// or: targetFragment, or a static callback, or an EventBus</pre>
+      <p class="why">A cast to a host type couples the two fragments and crashes when the fragment is reused elsewhere. <code>targetFragment</code> is deprecated because it does not survive process death — the reference is gone and the result never arrives.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — the Fragment Result API, or a shared ViewModel</div><pre>// child:
+setFragmentResult("filter", bundleOf("value" to filter))
+
+// parent:
+setFragmentResultListener("filter") { _, bundle -&gt; apply(bundle) }</pre>
+      <p class="why">The result API is bundle-backed, so it survives process death, and neither fragment names the other's type. For continuous shared state rather than a one-shot result, a ViewModel scoped to the navigation graph is the better fit.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — constructor arguments and manual back stack</div><pre>class DetailFragment(private val id: String) : Fragment()
+// after process death the system calls the no-arg constructor → crash
+
+startActivityForResult(intent, 42)      // deprecated, unstructured</pre>
+      <p class="why">The system recreates fragments reflectively with the no-arg constructor, so a constructor parameter guarantees a crash on process death — reproducible only with "Don't keep activities" or <code>am kill</code>. Numeric request codes are the same class of problem: unowned global state.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — arguments bundle and the Result API contract</div><pre>fun newInstance(id: String) = DetailFragment().apply {
+    arguments = bundleOf(ARG_ID to id)
+}
+
+private val picker = registerForActivityResult(PickContact()) { uri -&gt; … }
+picker.launch(Unit)</pre>
+      <p class="why">Arguments are part of the saved state, so they survive anything the system does. <code>ActivityResultContracts</code> replaces request codes with a typed contract registered before <code>STARTED</code> — which is also why registration must not be conditional.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 234</span>ViewModels and state holders</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a ViewModel holding Android objects</div><pre>class ProfileViewModel(
+    private val activity: Activity,          // leaks on rotation
+    private val resources: Resources,
+) : ViewModel() {
+    val title = resources.getString(R.string.title)   // wrong after locale change
+}</pre>
+      <p class="why">The ViewModel outlives the Activity by design, so holding one leaks the whole view hierarchy on every rotation. Resolving strings there also freezes them: a locale change recreates the Activity but not the ViewModel, so the old language persists.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — emit identifiers, resolve in the UI</div><pre>data class ProfileUi(val titleRes: Int, val name: String)
+
+// Compose resolves against the current configuration:
+Text(stringResource(state.titleRes))</pre>
+      <p class="why">The ViewModel decides <em>what</em> to say; the UI layer decides <em>how</em> to render it in the current configuration. This also makes the ViewModel testable without a Context and keeps it usable from a screenshot test at any locale.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — loading in <code>init</code></div><pre>class FeedViewModel : ViewModel() {
+    init { viewModelScope.launch { _state.value = repo.load() } }   // fires always
+}</pre>
+      <p class="why">The load runs when the ViewModel is constructed, whether or not anything is observing, and there is no way to retry it or to test the class without triggering it. On a screen the user never scrolls to, it is pure cost.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — let subscription drive the work</div><pre>val state: StateFlow&lt;FeedUiState&gt; = repo.observeFeed()
+    .map(::toUiState)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Loading)</pre>
+      <p class="why">Work starts when the screen collects and stops when it stops — no manual lifecycle handling, no retry plumbing, and the test controls everything by choosing when to collect. Keep <code>init</code> for genuinely eager, subscription-independent work.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 235</span>Dependency injection</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a service locator wearing DI's clothes</div><pre>object ServiceLocator {
+    lateinit var api: Api
+    val repo by lazy { Repo(api) }
+}
+class VM : ViewModel() { private val repo = ServiceLocator.repo }</pre>
+      <p class="why">Dependencies are invisible in the constructor, so nothing tells you what this class needs or lets a test substitute it. Tests must mutate global state and therefore cannot run in parallel — and one leaked assignment makes an unrelated suite fail.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — constructor injection, always</div><pre>@HiltViewModel
+class FeedViewModel @Inject constructor(
+    private val repo: ArticleRepository,
+    private val clock: Clock,
+) : ViewModel()</pre>
+      <p class="why">The constructor is the honest dependency list. If it is uncomfortably long, that is real information about the class doing too much — which a service locator merely hides.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — everything is a singleton</div><pre>@Provides @Singleton fun mapper(): ArticleMapper = ArticleMapper()
+@Provides @Singleton fun validator(): Validator = Validator()</pre>
+      <p class="why">Scoping is not an optimisation. A stateless mapper allocates faster than the scope lookup costs, and marking it <code>@Singleton</code> only adds lifetime to something that has no state to share. Meanwhile a genuinely shared cache scoped too narrowly silently duplicates.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — scope follows shared mutable state</div><pre>@Provides fun mapper(): ArticleMapper = ArticleMapper()   // unscoped
+
+@Provides @Singleton
+fun outbox(db: AppDatabase): OutboxDao = db.outboxDao()   // one shared queue</pre>
+      <p class="why">The test: would two instances of this cause a correctness problem? Yes → scope it. No → do not. Say it in those terms and the follow-up about component hierarchies answers itself.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 236</span>Room and data access</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — non-atomic multi-step writes</div><pre>suspend fun replaceFeed(items: List&lt;Article&gt;) {
+    dao.deleteAll()          // crash here → empty database
+    dao.insertAll(items)
+}</pre>
+      <p class="why">Two independent transactions. A crash, a cancellation or a process kill between them leaves the user with an empty feed and no way to recover except a manual refresh they do not know to perform.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — one transaction, cancellation-aware</div><pre>suspend fun replaceFeed(items: List&lt;Article&gt;) = db.withTransaction {
+    dao.deleteAll()
+    dao.insertAll(items)
+}</pre>
+      <p class="why"><code>withTransaction</code> is the coroutine-aware form — it uses the transaction dispatcher so a nested suspending call cannot deadlock the way <code>runInTransaction</code> plus <code>runBlocking</code> does. Either the whole swap happens or none of it does.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — the N+1 query</div><pre>val orders = dao.orders()
+orders.forEach { it.lines = dao.linesFor(it.id) }   // one query per order</pre>
+      <p class="why">Fifty orders means fifty-one queries, each with its own cursor and transaction overhead. It looks fine at ten rows in a test and is a visible freeze at fifty on a real device.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — let Room do the join</div><pre>data class OrderWithLines(
+    @Embedded val order: OrderEntity,
+    @Relation(parentColumn = "id", entityColumn = "order_id")
+    val lines: List&lt;LineEntity&gt;,
+)
+
+@Transaction @Query("SELECT * FROM orders WHERE user_id = :id")
+fun ordersWithLines(id: String): Flow&lt;List&lt;OrderWithLines&gt;&gt;</pre>
+      <p class="why"><code>@Relation</code> issues two queries total regardless of row count. <code>@Transaction</code> is required, not decorative: without it the two queries can observe different states and produce a result that never existed.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — a query that re-runs on every write</div><pre>@Query("SELECT * FROM events ORDER BY ts DESC")
+fun all(): Flow&lt;List&lt;Event&gt;&gt;        // 200k rows, observed by a badge count</pre>
+      <p class="why">Room invalidates per table, so every insert re-runs this and re-maps 200,000 objects — to display a number. On a table written by a sync worker this is a permanent background CPU load and a steady allocation rate.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — ask the database the actual question</div><pre>@Query("SELECT COUNT(*) FROM events WHERE unread = 1")
+fun unreadCount(): Flow&lt;Int&gt;         // one integer, index-backed
+
+@Query("SELECT * FROM events WHERE chat_id = :id ORDER BY ts DESC LIMIT 50")
+fun recent(id: String): Flow&lt;List&lt;Event&gt;&gt;</pre>
+      <p class="why">Push filtering and aggregation into SQL rather than mapping rows to count them in Kotlin. Confirm with <code>EXPLAIN QUERY PLAN</code>: "SEARCH … USING INDEX" is the goal, "SCAN TABLE" means you have none.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 237</span>Networking and serialization</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — DTOs used as domain and UI models</div><pre>@Serializable data class UserDto(val id: String, val display_name: String?)
+
+Text(user.display_name ?: "")     // JSON naming and server nullability in the UI</pre>
+      <p class="why">The server's field names, nullability and encoding conventions propagate to every screen. A backend rename becomes a UI change; an optional field becomes a null check in forty composables; and the UI cannot be tested without the network's shape.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — map once, at the boundary</div><pre>data class User(val id: UserId, val displayName: String)   // domain: no nulls
+
+fun UserDto.toDomain() = User(
+    id = UserId(id),
+    displayName = display_name?.takeIf { it.isNotBlank() } ?: "Unknown",
+)</pre>
+      <p class="why">One mapper is the single place where server reality is reconciled with what the app guarantees. It is also the natural place for a contract test: feed it a captured payload and assert the domain object.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — auth refresh as an interceptor race</div><pre>class AuthInterceptor : Interceptor {
+    override fun intercept(chain: Chain): Response {
+        val res = chain.proceed(chain.request().withToken(token))
+        if (res.code == 401) { token = api.refreshBlocking() }   // every thread
+        return res
+    }
+}</pre>
+      <p class="why">Six parallel requests hitting a 401 trigger six refreshes; five of them invalidate the token the sixth just obtained, and the user is logged out. It also blocks an OkHttp dispatcher thread and never retries the original request.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — <code>Authenticator</code> plus single-flight</div><pre>class TokenAuthenticator(private val store: TokenStore) : Authenticator {
+    private val mutex = Mutex()
+    override fun authenticate(route: Route?, response: Response): Request? {
+        if (responseCount(response) &gt;= 2) return null      // give up, no loop
+        val fresh = runBlocking {
+            mutex.withLock {
+                val current = store.token()
+                if (current != response.request.token()) current   // someone else did it
+                else store.refresh()
+            }
+        }
+        return response.request.newBuilder().withToken(fresh).build()
+    }
+}</pre>
+      <p class="why"><code>Authenticator</code> is the correct hook — OkHttp calls it on 401 and retries the request for you. The mutex plus the "has someone already refreshed?" check is the single-flight pattern, and the response-count guard is what prevents an infinite refresh loop against a permanently rejecting server.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — logging everything, everywhere</div><pre>OkHttpClient.Builder()
+    .addInterceptor(HttpLoggingInterceptor().setLevel(Level.BODY))
+    .build()</pre>
+      <p class="why">Full bodies at <code>BODY</code> level put tokens, personal data and payment details into logcat — which reaches crash breadcrumbs, support bundles and any app with log access on older devices. It also costs real time serialising strings nobody reads.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — debug only, redacted</div><pre>if (BuildConfig.DEBUG) {
+    addInterceptor(HttpLoggingInterceptor().apply {
+        level = Level.BASIC
+        redactHeader("Authorization")
+        redactHeader("Cookie")
+    })
+}</pre>
+      <p class="why">The build-type guard means the release binary does not contain the interceptor at all. In production, ship structured metrics — status code, latency, endpoint — rather than payloads, which is what you actually need to diagnose an incident.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 238</span>Background work</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — passing data through <code>WorkRequest</code> input</div><pre>val data = workDataOf("payload" to gson.toJson(largeList))   // 200 KB
+OneTimeWorkRequestBuilder&lt;UploadWorker&gt;().setInputData(data).build()</pre>
+      <p class="why"><code>Data</code> is capped at roughly 10 KB and throws above it. More fundamentally, work input is not a transport for state — the row can sit in the queue for hours, by which time the serialised copy is stale.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — pass an id, read from the store</div><pre>val data = workDataOf("batch_id" to batchId)      // a few bytes
+
+// in the worker:
+val items = dao.itemsForBatch(inputData.getString("batch_id")!!)</pre>
+      <p class="why">The worker reads current state at execution time, so a batch edited between enqueue and run is handled correctly. The same reasoning applies to notifications and deep links: pass identity, resolve state at use.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — retrying failures that will never succeed</div><pre>override suspend fun doWork(): Result =
+    try { api.upload(file); Result.success() }
+    catch (e: Exception) { Result.retry() }      // including 400 and 413</pre>
+      <p class="why">A malformed payload retries with exponential backoff forever, waking the device on a schedule to fail identically. It also catches <code>CancellationException</code> and reports it as a retryable failure.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — classify, and cap</div><pre>override suspend fun doWork(): Result = try {
+    api.upload(file); Result.success()
+} catch (e: CancellationException) { throw e }
+  catch (e: IOException) { if (runAttemptCount &lt; 5) Result.retry() else Result.failure() }
+  catch (e: HttpException) {
+      if (e.code() == 429 || e.code() &gt;= 500) Result.retry() else Result.failure()
+  }</pre>
+      <p class="why">Three buckets — transient, permanent, cancellation — plus an attempt cap so a persistently unreachable server does not retry indefinitely. And <code>Result.failure()</code> must be visible to the user when it represents lost intent.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 239</span>Testing</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — asserting on interactions</div><pre>@Test fun loads() {
+    viewModel.load()
+    verify(repo).fetch()                 // passes even if nothing is displayed
+    verify(analytics).track(any())
+}</pre>
+      <p class="why">This asserts that a particular implementation was chosen, not that the feature works. Refactor <code>fetch</code> into <code>observe</code> and the test fails while the app is fine — the definition of a brittle test, and the reason suites get deleted.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — assert on observable state</div><pre>@Test fun shows_items_after_load() = runTest {
+    val repo = FakeArticleRepository(items = listOf(article("a1")))
+    val vm = FeedViewModel(repo, TestClock)
+
+    vm.state.test {
+        assertEquals(Loading, awaitItem())
+        assertEquals(listOf("a1"), (awaitItem() as Ready).items.map { it.id })
+    }
+}</pre>
+      <p class="why">A fake plus a state assertion survives any refactor that preserves behaviour, which is exactly the property a test should have. Reserve mocks for genuine boundaries where the interaction <em>is</em> the contract — an analytics call, a payment SDK.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — real time in tests</div><pre>@Test fun debounces() {
+    vm.onQueryChanged("an")
+    Thread.sleep(400)                    // slow, and flaky on a loaded CI box
+    assertEquals(1, repo.searchCount)
+}</pre>
+      <p class="why">Every such test adds real seconds to the suite and fails intermittently when CI is busy — the two properties that make a team stop trusting its tests. It is also untestable for anything longer than a few hundred milliseconds.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — virtual time</div><pre>@Test fun debounces() = runTest {
+    vm.onQueryChanged("a"); vm.onQueryChanged("an")
+    advanceTimeBy(299); assertEquals(0, repo.searchCount)
+    advanceTimeBy(2);   assertEquals(1, repo.searchCount)
+}</pre>
+      <p class="why">Virtual time makes a 300 ms debounce assertable to the millisecond, instantly and deterministically. This requires the dispatcher to be injected — which is the concrete return on the DI argument in Chapter 235.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 240</span>Gradle, modules and release</h2>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — <code>api</code> everywhere and a <code>:common</code> module</div><pre>dependencies {
+    api(project(":common"))     // leaks the whole graph transitively
+    api(libs.retrofit)
+}</pre>
+      <p class="why"><code>api</code> puts a dependency on every consumer's compile classpath, so a change to one class recompiles modules that never used it. A <code>:common</code> module everything depends on is the monolith with extra build-graph overhead — the dependency graph is now a star, not a tree.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — <code>implementation</code> by default, split by responsibility</div><pre>dependencies {
+    implementation(project(":core:database"))   // not on consumers' classpath
+    api(project(":core:model"))                 // api ONLY for types in the surface
+}</pre>
+      <p class="why">Use <code>api</code> only when a type genuinely appears in your public signatures. Replace <code>:common</code> with narrow modules — <code>:core:model</code>, <code>:core:ui</code>, <code>:core:testing</code> — so a change touches a leaf rather than the root.</p></div>
+  </div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — release-only failures</div><pre>android { buildTypes { release { isMinifyEnabled = true } } }
+// R8 strips the reflectively-created adapter → crash only in production</pre>
+      <p class="why">Debug builds do not run R8, so every keep-rule bug ships. Reflection, serialization adapters and anything referenced only from XML are all invisible to the shrinker and fail at runtime in the one build users get.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — test the shrunk artifact</div><pre>// A minified debuggable variant, run in CI on every PR:
+create("releaseTest") {
+    initWith(getByName("release"))
+    isMinifyEnabled = true
+    signingConfig = signingConfigs.getByName("debug")
+    matchingFallbacks += "release"
+}</pre>
+      <p class="why">Smoke-test the actually-shipped shape of the binary. Prefer compile-time serialization (kotlinx.serialization) over reflective libraries so there are fewer keep rules to get wrong in the first place.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 241</span>The review checklist</h2>
+  <p>One question per area. If a change touches the area, the question must have an answer in the diff or the description.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Area</th><th>The question</th></tr></thead>
+    <tbody>
+      <tr><td>Types</td><td>Can a caller pass the arguments in the wrong order and still compile?</td></tr>
+      <tr><td>State modelling</td><td>How many states does this type represent, and how many are meaningful?</td></tr>
+      <tr><td>Collections</td><td>Is there a lookup inside a loop, or an eager chain over something large?</td></tr>
+      <tr><td>Nullability</td><td>Does this <code>null</code> have exactly one meaning?</td></tr>
+      <tr><td>Scopes</td><td>What cancels this coroutine, and what happens if a sibling fails?</td></tr>
+      <tr><td>Cancellation</td><td>Is <code>CancellationException</code> rethrown on every catch path? Can this loop be cancelled?</td></tr>
+      <tr><td>Flow</td><td>Cold and collected more than once? Is stale work cancelled? Does the callback unregister?</td></tr>
+      <tr><td>Compose effects</td><td>Anything in the body that is not describing UI? Are the effect keys right?</td></tr>
+      <tr><td>Compose perf</td><td>Is state read in composition that could be read in layout or draw? Any unstable parameters?</td></tr>
+      <tr><td>Fragments</td><td>Is the binding cleared? Do arguments survive process death?</td></tr>
+      <tr><td>ViewModel</td><td>Does it hold a Context, a View or a resolved string?</td></tr>
+      <tr><td>DI</td><td>Would two instances of this cause a correctness problem? If not, why is it scoped?</td></tr>
+      <tr><td>Room</td><td>Multi-step write in one transaction? Bounded, indexed query? A join rather than N+1?</td></tr>
+      <tr><td>Networking</td><td>Do DTOs stop at the boundary? Is refresh single-flight? Are bodies logged?</td></tr>
+      <tr><td>Background</td><td>Is work input an id rather than a payload? Are permanent failures retried?</td></tr>
+      <tr><td>Testing</td><td>Does this test assert behaviour or implementation? Does it use real time?</td></tr>
+      <tr><td>Build</td><td><code>api</code> where <code>implementation</code> would do? Has the minified build been run?</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XXXV rapid recall</h4>
+    <ul>
+      <li>Wrap identifiers and money in <code>value class</code>; money is <code>Long</code> minor units, never <code>Double</code>.</li>
+      <li>Model states as a sealed hierarchy so illegal combinations cannot be constructed.</li>
+      <li><code>data class</code> is a binary-compatibility hazard at a module boundary.</li>
+      <li>Sequences for long chains over large data; <code>associateBy</code> instead of a lookup in a loop.</li>
+      <li>Never expose a mutable collection; back it with a private field and a read-only view.</li>
+      <li><code>null</code> needs exactly one meaning, or it needs a type.</li>
+      <li>No <code>GlobalScope</code>; every scope has an owner and every starter is idempotent.</li>
+      <li><code>coroutineScope</code> when children are one result, <code>supervisorScope</code> when they are independent.</li>
+      <li>Main-safety belongs to the function that blocks, with an injected dispatcher.</li>
+      <li>Rethrow <code>CancellationException</code>; <code>NonCancellable</code> only around bounded cleanup.</li>
+      <li><code>ensureActive()</code> in any CPU loop longer than a frame.</li>
+      <li>Cold flows re-execute per collector — share deliberately or read from the database.</li>
+      <li><code>flatMapLatest</code> for superseded work; <code>awaitClose</code> is mandatory in <code>callbackFlow</code>.</li>
+      <li><code>Channel</code> for one-shot events; <code>SharedFlow</code> only when several observers care.</li>
+      <li>Composable bodies describe UI and do nothing else; keys decide when effects restart.</li>
+      <li><code>rememberUpdatedState</code> for an effect that must not restart but must not go stale.</li>
+      <li>Read state in layout or draw with the lambda modifier overloads, not in composition.</li>
+      <li>Slots, not boolean flags; every component takes a <code>modifier</code>.</li>
+      <li>Null the view binding in <code>onDestroyView</code>; fragment arguments go in the bundle.</li>
+      <li>ViewModels emit resource ids, never resolved strings or a Context.</li>
+      <li>Let subscription start the work rather than loading in <code>init</code>.</li>
+      <li>Constructor injection always; scope only what shares mutable state.</li>
+      <li>Multi-step writes in <code>withTransaction</code>; <code>@Relation</code> with <code>@Transaction</code> instead of N+1.</li>
+      <li>Ask SQL the real question — <code>COUNT</code> and <code>LIMIT</code>, not a full-table observe.</li>
+      <li>DTOs stop at the boundary; refresh is single-flight with a loop guard.</li>
+      <li>Work input carries an id, not a payload; classify failures and cap attempts.</li>
+      <li>Assert observable state with fakes and virtual time, not interactions and <code>sleep</code>.</li>
+      <li><code>implementation</code> by default; run the minified build in CI.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p34" data-p="p34"><span class="k">Previous</span><span class="t">← Part XXXIV</span></a><a class="r" href="#home" data-p="home"><span class="k">Back to</span><span class="t">Contents →</span></a></div>
+</section>

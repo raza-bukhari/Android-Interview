@@ -1,0 +1,729 @@
+<section class="page" id="p32">
+  <header class="phead">
+    <p class="eyebrow">Part XXXII</p>
+    <h1>End-to-End: a <em>paginated, offline-first</em> feature</h1>
+    <p class="deck">One vertical slice built completely — Hilt, Room, Paging 3, coroutines, StateFlow and SharedFlow, WorkManager and Compose — with the trade-off behind every line stated out loud. Then the tasks an interviewer builds out of exactly this slice.</p>
+  </header>
+
+  <div class="note"><span class="lab">Why one worked slice</span><p>Most of this book argues about decisions in isolation. This part does the opposite: it wires one realistic feature end to end so the seams are visible — where pagination meets offline, where an optimistic write meets a server that disagrees, where a <code>Flow</code> stops being cold. Every snippet is production-shaped. Where a shortcut is taken, the <em>why</em> line says so.</p></div>
+
+  <h2><span class="cn">Chapter 191</span>The brief, and the one rule</h2>
+  <p>Build a <strong>saved-articles feed</strong>. A cursor-paginated endpoint returns articles; the list scrolls indefinitely; each row has a save toggle. It must open instantly on a cold start with no network, scroll through everything already cached, accept save toggles while offline, and converge with the server when connectivity returns. Nothing may be lost to process death.</p>
+  <p>That brief contains the entire difficulty, and it resolves to one rule:</p>
+  <div class="note"><span class="lab">The rule</span><p><strong>The UI reads the database and nothing else.</strong> The network is a process that writes into the database; so is the sync worker. Neither is ever on the path between the user and the pixels. Every design decision below follows from this, and almost every architecture that fails at this brief has broken it somewhere.</p></div>
+  <p>Once the database is the only reader-visible surface, "offline" stops being a mode with its own code path. There is no <code>if (isOnline)</code> anywhere in this feature. Offline is simply the case where the writers are quiet — the reader cannot tell, and does not need to.</p>
+
+  <pre class="mermaid">
+flowchart LR
+  API["Feed API · cursor pages"] --> RM["RemoteMediator"]
+  RM --> DB[("Room · articles + remote_keys")]
+  DB --> PS["PagingSource"]
+  PS --> PAGER["Pager · PagingData"]
+  PAGER --> VM["FeedViewModel · cachedIn"]
+  VM --> UI["Compose · LazyColumn"]
+  UI -- "toggle save" --> VM
+  VM --> REPO["Repository · optimistic write"]
+  REPO --> DB
+  REPO --> OUT[("Room · outbox")]
+  OUT --> W["SyncWorker"]
+  W --> API
+  W --> DB
+  </pre>
+
+  <p>Read the diagram as two loops that meet only in Room. The read loop is <em>API → mediator → database → paging source → UI</em>. The write loop is <em>UI → repository → database + outbox → worker → API → database</em>. They never call each other. That is what makes each one independently testable, and what makes the feature survive an airplane-mode toggle mid-scroll.</p>
+
+  <h3>Module layout</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:190px">Module</th><th>Contains</th></tr></thead>
+    <tbody>
+      <tr><td><code>core:network</code></td><td>Retrofit, OkHttp, the auth interceptor, DTOs. Knows nothing about Room.</td></tr>
+      <tr><td><code>core:database</code></td><td>Room entities, DAOs, migrations, the outbox. Knows nothing about Retrofit.</td></tr>
+      <tr><td><code>core:model</code></td><td>Domain types. Depends on nothing.</td></tr>
+      <tr><td><code>data:feed</code></td><td>The repository, the <code>RemoteMediator</code>, the mappers, the sync worker. The only module that sees both sides.</td></tr>
+      <tr><td><code>feature:feed</code></td><td>ViewModel and Compose. Depends on <code>data:feed</code>'s interface, never its implementation.</td></tr>
+    </tbody>
+  </table></div>
+  <p>The mapper placement is deliberate and gets asked about: DTO→entity and entity→domain both live in <code>data:feed</code>, because it is the only module that should know that a <code>thumb_url</code> column and a <code>thumbUrl</code> JSON field are the same idea. Put the mapper in <code>core:network</code> and the network module now depends on the database; put it in <code>feature:feed</code> and every feature re-implements it.</p>
+
+  <h2><span class="cn">Chapter 192</span>The API contract</h2>
+  <p>Pagination style is the first real decision, and it is the server's decision that the client must live with. Establish it before writing anything.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:130px">Style</th><th>Mechanism</th><th>Where it breaks</th></tr></thead>
+    <tbody>
+      <tr><td>Offset / page number</td><td><code>?page=3&amp;size=20</code>. Trivial server-side, trivially resumable.</td><td>An insert at the head shifts every page boundary: the user sees a duplicated row and misses another. Cost grows with offset because the database still walks the skipped rows.</td></tr>
+      <tr><td>Cursor / keyset</td><td><code>?cursor=eyJ0cyI6…&amp;limit=20</code>. The cursor encodes the sort key of the last row.</td><td>Cannot jump to an arbitrary page, and the cursor is opaque — the client must persist it because it cannot recompute it. Requires a stable, unique sort key.</td></tr>
+      <tr><td>Sync token / delta</td><td>Server returns a token representing "everything you know"; the next call returns changes since.</td><td>Best for a feed that must converge rather than merely append, but requires server-side tombstones and change tracking. See Part XVII.</td></tr>
+    </tbody>
+  </table></div>
+  <p>This feature uses <strong>cursor pagination</strong>, which is the correct default for an append-only feed and the one that forces you to solve the interesting problem: the cursor is opaque, so it must be persisted alongside the data or the app cannot resume paging after process death.</p>
+
+  <div class="code1"><div class="lab">core:network — the contract</div><pre>interface FeedApi {
+
+    @GET("v1/articles")
+    suspend fun articles(
+        @Query("cursor") cursor: String?,     // null = first page
+        @Query("limit") limit: Int,
+    ): PageDto&lt;ArticleDto&gt;
+
+    /** Idempotent by header, so a retry after a post-send timeout is safe. */
+    @PATCH("v1/articles/{id}/state")
+    suspend fun updateState(
+        @Path("id") id: String,
+        @Header("Idempotency-Key") key: String,
+        @Body body: StatePatchDto,
+    ): ArticleDto
+}
+
+@Serializable
+data class PageDto&lt;T&gt;(
+    val items: List&lt;T&gt;,
+    /** null means the server has nothing more. Not an empty string. */
+    @SerialName("next_cursor") val nextCursor: String? = null,
+    @SerialName("server_time") val serverTime: Long,
+)
+
+@Serializable
+data class ArticleDto(
+    val id: String,
+    val title: String,
+    val excerpt: String,
+    @SerialName("thumb_url") val thumbUrl: String? = null,
+    val saved: Boolean,
+    @SerialName("updated_at") val updatedAt: Long,
+    /** Server-assigned ordering key. The client never invents one. */
+    val position: Long,
+)</pre></div>
+  <p><strong>Three details that are worth arguing for in an interview.</strong> The end-of-pagination signal is a <em>nullable cursor</em>, not an empty item list — an empty page with a cursor is a legitimate response when the server filters after paging, and treating it as the end truncates the feed. Every DTO field that the server may add later has a default, so an older client does not crash on a newer payload. And <code>position</code> comes from the server: if the client orders by <code>updated_at</code>, an edit reorders the feed under the user's thumb mid-scroll.</p>
+
+  <h2><span class="cn">Chapter 193</span>Room as the single source of truth</h2>
+  <p>The schema carries three things that a naive cache does not: <em>which feed</em> a row belongs to, <em>where the server put it</em>, and <em>what the user has done to it that the server has not seen yet</em>. That last column is what makes offline writes work.</p>
+
+  <div class="code1"><div class="lab">core:database — entities</div><pre>@Entity(
+    tableName = "articles",
+    indices = [Index(value = ["feed_id", "position"])],   // covers filter + sort
+)
+data class ArticleEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "feed_id") val feedId: String,
+    val title: String,
+    val excerpt: String,
+    @ColumnInfo(name = "thumb_url") val thumbUrl: String?,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+    val position: Long,
+
+    /** Server truth. Only sync writes this. */
+    @ColumnInfo(name = "saved_remote") val savedRemote: Boolean,
+
+    /** Local intent while a write is unacknowledged. null = agrees with server. */
+    @ColumnInfo(name = "saved_local") val savedLocal: Boolean? = null,
+)
+
+@Entity(tableName = "remote_keys")
+data class RemoteKeyEntity(
+    @PrimaryKey @ColumnInfo(name = "feed_id") val feedId: String,
+    /** The opaque cursor for the NEXT append. null = end reached. */
+    @ColumnInfo(name = "next_cursor") val nextCursor: String?,
+    @ColumnInfo(name = "refreshed_at") val refreshedAt: Long,
+)</pre></div>
+
+  <p>Splitting <code>saved</code> into a remote column and a local override is the single most important decision in this part. One mutable <code>saved</code> boolean cannot answer the question sync must ask on every reconnect — <em>is this value the server's, or something the user did that I still owe the server?</em> — and without that answer a refresh silently reverts the user's taps.</p>
+
+  <div class="code1"><div class="lab">core:database — the DAO the UI actually reads</div><pre>/** The projection the list renders. Note it has no nullable-override concept:
+ *  the merge happens in SQL so no caller can forget it. */
+data class ArticleRow(
+    val id: String,
+    val title: String,
+    val excerpt: String,
+    @ColumnInfo(name = "thumb_url") val thumbUrl: String?,
+    val saved: Boolean,
+    val pending: Boolean,
+)
+
+@Dao
+interface ArticleDao {
+
+    @Query("SELECT id, title, excerpt, thumb_url, " +
+           "COALESCE(saved_local, saved_remote) AS saved, " +
+           "(saved_local IS NOT NULL) AS pending " +
+           "FROM articles WHERE feed_id = :feedId ORDER BY position ASC")
+    fun pagingSource(feedId: String): PagingSource&lt;Int, ArticleRow&gt;
+
+    @Upsert
+    suspend fun upsertAll(items: List&lt;ArticleEntity&gt;)      // one transaction
+
+    @Query("UPDATE articles SET saved_local = :saved WHERE id = :id")
+    suspend fun setSavedLocal(id: String, saved: Boolean)
+
+    @Query("UPDATE articles SET saved_remote = :saved, saved_local = NULL, " +
+           "updated_at = :updatedAt WHERE id = :id")
+    suspend fun applyServerState(id: String, saved: Boolean, updatedAt: Long)
+
+    /** Refresh clears the server's view of the feed — never the local overrides. */
+    @Query("DELETE FROM articles WHERE feed_id = :feedId AND saved_local IS NULL")
+    suspend fun clearSyncedRows(feedId: String)
+}</pre></div>
+
+  <p><strong>Why the merge is a SQL expression.</strong> <code>COALESCE(saved_local, saved_remote)</code> means the UI physically cannot render a stale value, and the <code>pending</code> flag that drives the "not synced yet" affordance falls out of the same row for free. Compute this in Kotlin instead and you have introduced a rule that every future call site must remember; here it is impossible to get wrong because there is no other query.</p>
+  <p><strong>Why <code>clearSyncedRows</code> has a <code>WHERE</code> clause.</strong> The standard <code>RemoteMediator</code> sample deletes the whole table on <code>REFRESH</code>. Do that here and a user who saved three articles on the underground loses all three the moment the app reconnects and refreshes — the local intent is deleted before the worker ever sends it. This is the most common data-loss bug in offline-first paging, and it is invisible in testing because it needs an offline write followed by a refresh.</p>
+
+  <h2><span class="cn">Chapter 194</span>Hilt wiring</h2>
+  <p>Dependency injection earns its cost here in exactly one way: everything that touches the outside world — clock, dispatcher, network, database — arrives through the constructor, so the whole slice runs in a JVM test with no emulator. That is the argument to make, not "it reduces boilerplate".</p>
+
+  <div class="code1"><div class="lab">Qualifiers, so dispatchers are injected rather than named</div><pre>@Qualifier @Retention(AnnotationRetention.BINARY) annotation class IoDispatcher
+@Qualifier @Retention(AnnotationRetention.BINARY) annotation class ApplicationScope
+
+@Module @InstallIn(SingletonComponent::class)
+object CoroutinesModule {
+    @Provides @IoDispatcher fun io(): CoroutineDispatcher = Dispatchers.IO
+
+    /** Survives every screen. For work that must finish even if the user leaves. */
+    @Provides @Singleton @ApplicationScope
+    fun appScope(@IoDispatcher io: CoroutineDispatcher): CoroutineScope =
+        CoroutineScope(SupervisorJob() + io)
+}</pre></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — the dispatcher is hardcoded</div><pre>class ArticleRepository @Inject constructor(private val api: FeedApi) {
+    suspend fun refresh() = withContext(Dispatchers.IO) { api.articles(null, 20) }
+}</pre>
+      <p class="why">The test now needs a real thread pool, so it cannot use virtual time: every <code>delay</code> in the code under test costs real wall-clock seconds, and assertions race the dispatcher. Suites written this way are the origin of most "flaky on CI, passes locally" tickets.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — injected, replaceable in one line</div><pre>class ArticleRepository @Inject constructor(
+    private val api: FeedApi,
+    @IoDispatcher private val io: CoroutineDispatcher,
+) {
+    suspend fun refresh() = withContext(io) { api.articles(null, 20) }
+}
+
+// test:  ArticleRepository(fakeApi, StandardTestDispatcher(scheduler))</pre>
+      <p class="why">One <code>TestDispatcher</code> makes the whole slice deterministic and instant. This is the concrete payoff of DI in Android and the reason to introduce Hilt at all — say it in exactly these terms.</p></div>
+  </div>
+
+  <div class="code1"><div class="lab">Binding the implementation behind an interface</div><pre>@Module @InstallIn(SingletonComponent::class)
+abstract class FeedDataModule {
+    /** @Binds, not @Provides — no factory code is generated for a cast. */
+    @Binds @Singleton
+    abstract fun repository(impl: ArticleRepositoryImpl): ArticleRepository
+}
+
+@Module @InstallIn(SingletonComponent::class)
+object DatabaseModule {
+    @Provides @Singleton
+    fun db(@ApplicationContext ctx: Context): AppDatabase =
+        Room.databaseBuilder(ctx, AppDatabase::class.java, "app.db")
+            .addMigrations(MIGRATION_4_5)          // never fallbackToDestructiveMigration
+            .build()
+
+    @Provides fun articleDao(db: AppDatabase): ArticleDao = db.articleDao()
+    @Provides fun outboxDao(db: AppDatabase): OutboxDao = db.outboxDao()
+}</pre></div>
+  <p><strong>The scoping question interviewers ask:</strong> why is the repository <code>@Singleton</code>? Not for performance — because it owns the outbox and the refresh signal, and two instances would mean two independent views of pending work. Scope follows <em>shared mutable state</em>, not object cost. A stateless mapper needs no scope at all, and adding one there is cargo cult.</p>
+
+  <h2><span class="cn">Chapter 195</span>RemoteMediator — where pagination meets offline</h2>
+  <p><code>RemoteMediator</code> is the piece people get wrong, because its job is counter-intuitive: it does not supply pages to the UI. It is a <em>write-behind</em> component that notices the list is running out of cached rows and fills the database. The <code>PagingSource</code> over Room is what the UI actually reads, and it re-emits automatically because Room invalidates the query.</p>
+
+  <div class="code1"><div class="lab">data:feed — the mediator in full</div><pre>@OptIn(ExperimentalPagingApi::class)
+class ArticleRemoteMediator(
+    private val feedId: String,
+    private val api: FeedApi,
+    private val db: AppDatabase,
+    private val articles: ArticleDao,
+    private val keys: RemoteKeyDao,
+    private val clock: Clock,
+) : RemoteMediator&lt;Int, ArticleRow&gt;() {
+
+    /** Skip the network entirely if the cache is fresh — this is what makes
+     *  a warm start render instantly instead of flashing a spinner. */
+    override suspend fun initialize(): InitializeAction {
+        val age = clock.now() - (keys.refreshedAt(feedId) ?: 0L)
+        return if (age &lt; CACHE_TTL_MS) InitializeAction.SKIP_INITIAL_REFRESH
+               else InitializeAction.LAUNCH_INITIAL_REFRESH
+    }
+
+    override suspend fun load(
+        loadType: LoadType,
+        state: PagingState&lt;Int, ArticleRow&gt;,
+    ): MediatorResult {
+
+        val cursor: String? = when (loadType) {
+            LoadType.REFRESH -&gt; null                       // start from the top
+            LoadType.PREPEND -&gt; return MediatorResult.Success(endOfPaginationReached = true)
+            LoadType.APPEND -&gt; keys.nextCursor(feedId)
+                ?: return MediatorResult.Success(endOfPaginationReached = true)
+        }
+
+        return try {
+            val page = api.articles(cursor = cursor, limit = state.config.pageSize)
+
+            db.withTransaction {                           // atomic: keys and rows agree
+                if (loadType == LoadType.REFRESH) {
+                    articles.clearSyncedRows(feedId)       // preserves local overrides
+                    keys.clear(feedId)
+                }
+                keys.upsert(RemoteKeyEntity(feedId, page.nextCursor, clock.now()))
+                articles.upsertAll(page.items.map { it.toEntity(feedId) })
+            }
+
+            MediatorResult.Success(endOfPaginationReached = page.nextCursor == null)
+
+        } catch (e: CancellationException) {
+            throw e                                        // never swallow cancellation
+        } catch (e: IOException) {
+            MediatorResult.Error(e)                        // offline: cache still renders
+        } catch (e: HttpException) {
+            MediatorResult.Error(e)
+        }
+    }
+}</pre></div>
+
+  <p><strong>Why the cursor comes from a table, not from <code>state.lastItemOrNull()</code>.</strong> The samples derive the next key from the last loaded item, which only works when the key is a field of the item. An opaque cursor is not — it encodes server-side sort state the client cannot reconstruct. Persisting it in <code>remote_keys</code> is also what lets paging resume after process death: the user returns from Recents forty rows down and the next append continues correctly instead of re-fetching page one.</p>
+  <p><strong>Why the transaction wraps both writes.</strong> Without it, a crash between "store cursor" and "store rows" leaves a cursor pointing past data that was never saved, and those articles are invisible forever — a gap the user cannot recover from without clearing app data.</p>
+  <p><strong>Why <code>MediatorResult.Error</code> is not a failure state for the screen.</strong> It records that <em>this load</em> failed. The <code>PagingSource</code> over Room keeps emitting whatever is cached, so the list stays fully readable offline. The UI's job — Chapter 198 — is to show that error as a retry affordance without blanking the content, and that distinction is the entire difference between offline-first and offline-hostile.</p>
+
+  <div class="note"><span class="lab">The question that follows this code</span><p>"What happens if the user scrolls fast while offline?" Paging invokes <code>load</code> once per boundary, sees <code>Error</code>, and stops — it does not hammer. Recovery is <code>retry()</code>, driven by the user or by a connectivity signal. If you also want automatic recovery on reconnect, collect connectivity in the ViewModel and call <code>retry()</code>; do not put a network callback inside the mediator, which has no lifecycle of its own.</p></div>
+
+  <h2><span class="cn">Chapter 196</span>The repository, and where <code>SharedFlow</code> is genuinely right</h2>
+  <p>The repository assembles the <code>Pager</code> and owns the write path. It deliberately does <em>not</em> call <code>cachedIn</code> — that operator needs a scope, and the only correct scope is the ViewModel's. A repository is a singleton; caching paging state there leaks it across screens.</p>
+
+  <div class="code1"><div class="lab">data:feed — repository</div><pre>@Singleton
+class ArticleRepositoryImpl @Inject constructor(
+    private val api: FeedApi,
+    private val db: AppDatabase,
+    private val articles: ArticleDao,
+    private val outbox: OutboxDao,
+    private val keys: RemoteKeyDao,
+    private val sync: SyncScheduler,
+    private val clock: Clock,
+    @IoDispatcher private val io: CoroutineDispatcher,
+) : ArticleRepository {
+
+    override fun feed(feedId: String): Flow&lt;PagingData&lt;ArticleRow&gt;&gt; = Pager(
+        config = PagingConfig(
+            pageSize = 20,
+            prefetchDistance = 10,      // start the next fetch 10 rows early
+            initialLoadSize = 40,       // fill the first screen in one round trip
+            enablePlaceholders = false, // count is unknown with cursor paging
+        ),
+        remoteMediator = ArticleRemoteMediator(feedId, api, db, articles, keys, clock),
+        pagingSourceFactory = { articles.pagingSource(feedId) },
+    ).flow                              // cachedIn belongs to the ViewModel
+
+    /** Returns as soon as the intent is durable. The network is not on this path. */
+    override suspend fun setSaved(articleId: String, saved: Boolean) = withContext(io) {
+        db.withTransaction {
+            articles.setSavedLocal(articleId, saved)
+            outbox.upsert(
+                OutboxEntity(
+                    articleId = articleId,
+                    saved = saved,
+                    opId = UUID.randomUUID().toString(),   // fresh idempotency key
+                    createdAt = clock.now(),
+                )
+            )
+        }
+        sync.requestSync()
+    }
+}</pre></div>
+
+  <p><strong>The <code>PagingConfig</code> numbers are an argument, not a default.</strong> <code>initialLoadSize</code> above <code>pageSize</code> exists so the first screen does not need two round trips; setting them equal is the most common cause of "the list loads, then immediately loads again". <code>prefetchDistance</code> trades data for smoothness — raise it on a fast feed, lower it on a metered one. And <code>enablePlaceholders</code> requires a known total count, which a cursor API cannot give you, so it must be off here.</p>
+
+  <h3>StateFlow, SharedFlow, or Channel</h3>
+  <p>All three appear in this feature, doing three different jobs. Choosing by habit rather than by question is what produces duplicated navigation and lost snackbars.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:120px">Primitive</th><th style="min-width:200px">The question it answers</th><th>Used here for</th></tr></thead>
+    <tbody>
+      <tr><td><code>StateFlow</code></td><td>"What does the screen look like right now?" Always has a value, conflated, distinct-until-changed.</td><td>Screen state — filter selection, sync banner. Survives rotation by definition.</td></tr>
+      <tr><td><code>SharedFlow</code></td><td>"Something happened that <em>several</em> unrelated observers care about." Configurable replay, multicast, no current value.</td><td>The app-wide sync-finished signal. Two screens and a badge subscribe; none owns it.</td></tr>
+      <tr><td><code>Channel</code></td><td>"Something must be handled exactly once by exactly one consumer."</td><td>Snackbars and navigation. Buffers while the screen is stopped, replays nothing on rotation.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="code1"><div class="lab">The honest SharedFlow — one publisher, several unrelated subscribers</div><pre>@Singleton
+class SyncSignals @Inject constructor() {
+
+    private val _completed = MutableSharedFlow&lt;SyncResult&gt;(
+        replay = 0,                                  // a sync that finished before
+                                                     // you opened the screen is not news
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val completed: SharedFlow&lt;SyncResult&gt; = _completed.asSharedFlow()
+
+    /** tryEmit, not emit: the worker must never be suspended by a slow subscriber. */
+    fun publish(result: SyncResult) { _completed.tryEmit(result) }
+}</pre></div>
+  <p><strong>Why this is a <code>SharedFlow</code> and the snackbar is not.</strong> Multicast is the whole point: the feed screen, the settings screen and a toolbar badge each want to know that a sync finished, and none of them owns the signal. A <code>Channel</code> would deliver to exactly one of them, arbitrarily. Conversely a snackbar has exactly one consumer and must not be dropped when the screen is briefly stopped — that is a <code>Channel</code>. Getting these backwards produces the two classic bugs: an event that reaches only one of three collectors, and a toast that vanishes because it fired while the app was backgrounded.</p>
+  <p><code>replay = 0</code> with a non-zero buffer plus <code>DROP_OLDEST</code> is the configuration that makes <code>tryEmit</code> always succeed and never block the worker. A <code>replay = 1</code> here would re-deliver the last sync result to every newly-opened screen — a stale snackbar on every navigation.</p>
+
+  <h2><span class="cn">Chapter 197</span>The ViewModel</h2>
+  <div class="code1"><div class="lab">feature:feed — ViewModel</div><pre>@HiltViewModel
+class FeedViewModel @Inject constructor(
+    private val repo: ArticleRepository,
+    private val signals: SyncSignals,
+    savedState: SavedStateHandle,
+) : ViewModel() {
+
+    private val feedId: String = checkNotNull(savedState["feedId"])
+
+    /** cachedIn survives configuration change; without it, rotation refetches
+     *  page one and the user loses their scroll position. */
+    val items: Flow&lt;PagingData&lt;ArticleRow&gt;&gt; =
+        repo.feed(feedId).cachedIn(viewModelScope)
+
+    private val _state = MutableStateFlow(FeedUiState())
+    val state: StateFlow&lt;FeedUiState&gt; = _state.asStateFlow()
+
+    private val _events = Channel&lt;FeedEvent&gt;(Channel.BUFFERED)
+    val events: Flow&lt;FeedEvent&gt; = _events.receiveAsFlow()
+
+    init {
+        viewModelScope.launch {
+            signals.completed.collect { result -&gt;
+                _state.update { it.copy(syncing = false) }
+                if (result is SyncResult.Failed) {
+                    _events.send(FeedEvent.Snack("Changes will sync when you're back online"))
+                }
+            }
+        }
+    }
+
+    fun onSaveToggled(row: ArticleRow) {
+        viewModelScope.launch {
+            _state.update { it.copy(syncing = true) }
+            try {
+                repo.setSaved(row.id, !row.saved)      // returns once durable
+            } catch (e: CancellationException) {
+                throw e                                 // structured concurrency
+            } catch (e: Throwable) {
+                _events.send(FeedEvent.Snack("Couldn't save — please try again"))
+            }
+        }
+    }
+}
+
+data class FeedUiState(val syncing: Boolean = false, val filter: Filter = Filter.All)
+sealed interface FeedEvent { data class Snack(val text: String) : FeedEvent }</pre></div>
+
+  <p><strong>Note what is <em>not</em> in <code>FeedUiState</code>:</strong> the list. Paging owns its own stream and its own load states; copying rows into the state object means holding every loaded page in memory and re-emitting the whole list on every unrelated state change. Two streams from one ViewModel is the correct shape here, not a smell.</p>
+  <p><strong>Note the absence of <code>runCatching</code>.</strong> It catches <code>Throwable</code>, which includes <code>CancellationException</code> — so a ViewModel cleared mid-write would be reported to the user as a save failure, and the coroutine machinery would be told the cancellation was handled. Explicit rethrow, every time.</p>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — the shape that leaks a collector</div><pre>val user: StateFlow&lt;User?&gt; = repo.observeUser()
+    .stateIn(viewModelScope, SharingStarted.Eagerly, null)</pre>
+      <p class="why"><code>Eagerly</code> keeps the upstream — and any database or socket it holds — alive for the ViewModel's whole life, including the hours the app spends in the background. On a screen the user is not looking at, that is a battery and memory cost with no reader.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — bounded by subscription, with a rotation grace</div><pre>val user: StateFlow&lt;User?&gt; = repo.observeUser()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)</pre>
+      <p class="why">The five seconds is not superstition: it is longer than a configuration change and shorter than a user's attention. The upstream survives rotation without restarting, and stops when the screen is genuinely gone.</p></div>
+  </div>
+
+  <h2><span class="cn">Chapter 198</span>The Compose layer</h2>
+  <p>Load-state handling is where offline-first is won or lost. There are three independent load states — <code>refresh</code>, <code>append</code>, <code>prepend</code> — and the rule is that <strong>an error only takes over the screen when there is nothing to show</strong>.</p>
+
+  <div class="code1"><div class="lab">feature:feed — screen</div><pre>@Composable
+fun FeedScreen(
+    snackbar: SnackbarHostState,
+    vm: FeedViewModel = hiltViewModel(),
+) {
+    val items = vm.items.collectAsLazyPagingItems()
+    val state by vm.state.collectAsStateWithLifecycle()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    LaunchedEffect(Unit) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            vm.events.collect { event -&gt;
+                when (event) {
+                    is FeedEvent.Snack -&gt; snackbar.showSnackbar(event.text)
+                }
+            }
+        }
+    }
+
+    val refresh = items.loadState.refresh
+    val isEmpty = items.itemCount == 0
+
+    when {
+        refresh is LoadState.Loading &amp;&amp; isEmpty -&gt; FeedSkeleton()
+        refresh is LoadState.Error &amp;&amp; isEmpty -&gt;
+            ErrorPane(refresh.error, onRetry = items::retry)
+        refresh is LoadState.NotLoading &amp;&amp; isEmpty -&gt; EmptyPane()
+        else -&gt; LazyColumn {
+            // Cached content is showing; a failed refresh is a banner, not a takeover.
+            if (refresh is LoadState.Error) {
+                item { StaleBanner(onRetry = items::retry) }
+            }
+            items(
+                count = items.itemCount,
+                key = items.itemKey { it.id },
+                contentType = items.itemContentType { "article" },
+            ) { index -&gt;
+                items[index]?.let { row -&gt;
+                    ArticleCard(
+                        row = row,
+                        onToggleSave = { vm.onSaveToggled(row) },
+                    )
+                }
+            }
+            when (val append = items.loadState.append) {
+                is LoadState.Loading -&gt; item { AppendSpinner() }
+                is LoadState.Error -&gt; item { AppendRetry(onRetry = items::retry) }
+                else -&gt; Unit
+            }
+        }
+    }
+}</pre></div>
+
+  <div class="cmp">
+    <div class="cbox no"><div class="lab">Anti-pattern — the error swallows the cache</div><pre>when (items.loadState.refresh) {
+    is LoadState.Loading -&gt; FullScreenSpinner()
+    is LoadState.Error   -&gt; FullScreenError()      // 200 cached rows, hidden
+    else -&gt; ArticleList(items)
+}</pre>
+      <p class="why">Every one of the user's cached articles is replaced by an error page the moment the device loses signal. All the work in Chapters 193–196 exists to make offline reading possible, and four lines of UI throw it away. This is the single most common bug in Paging 3 code review.</p></div>
+    <div class="cbox yes"><div class="lab">Practice — the error is proportional to what it cost</div><pre>when {
+    refresh is LoadState.Error &amp;&amp; items.itemCount == 0 -&gt; FullScreenError(::retry)
+    refresh is LoadState.Error -&gt; { StaleBanner(::retry); ArticleList(items) }
+    else -&gt; ArticleList(items)
+}</pre>
+      <p class="why">Nothing cached means a full-screen error is the only honest UI. Something cached means the content stays and the failure is a dismissible banner. State the rule as: <em>degrade, never blank</em>.</p></div>
+  </div>
+
+  <p><strong>Why <code>key</code> and <code>contentType</code> are not optional here.</strong> A save toggle updates one row; without a stable key, Room's invalidation produces a new <code>PagingData</code> and Compose rebuilds every visible item — a visible stutter on a mid-tier device. <code>contentType</code> lets the runtime reuse slots between items of the same shape rather than discarding them.</p>
+  <p><strong>Why <code>collectAsStateWithLifecycle</code> rather than <code>collectAsState</code>.</strong> The latter keeps collecting while the app is in the background: a state flow backed by a database query goes on running against a screen nobody can see. On the events channel the difference is sharper still — <code>repeatOnLifecycle(STARTED)</code> is what makes a snackbar wait for the user to come back instead of being shown to an empty screen.</p>
+
+  <h2><span class="cn">Chapter 199</span>Writes: optimistic update plus outbox</h2>
+  <p>The write path has one requirement that dictates its whole shape: <strong>the tap must be durable before the network is attempted</strong>. Everything else follows.</p>
+
+  <div class="code1"><div class="lab">core:database — the outbox</div><pre>@Entity(tableName = "outbox")
+data class OutboxEntity(
+    /** Keyed by article, so repeated toggles COALESCE into one pending intent. */
+    @PrimaryKey @ColumnInfo(name = "article_id") val articleId: String,
+    val saved: Boolean,
+    /** Regenerated whenever the intent changes. Sent as Idempotency-Key. */
+    @ColumnInfo(name = "op_id") val opId: String,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    val attempts: Int = 0,
+)</pre></div>
+
+  <p><strong>The primary key is the design.</strong> Saving, unsaving and re-saving an article produces one row, not three: for a <em>set-membership toggle</em> only the final intent has meaning and the intermediate states are not business events. That is not universally true — an outbox of "post a comment" operations must be append-only and keyed by operation id, because every comment is a distinct fact. Choosing between these two is a genuine Staff-level question, and the answer is: <em>does replaying only the last operation produce the same server state as replaying all of them?</em> If yes, coalesce; if no, append.</p>
+  <p><strong>The idempotency key is generated at user commit</strong> and persisted with the row — not at send time. A key generated when the request is dispatched changes on every retry, which defeats the entire mechanism: the server sees two distinct operations and applies both.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:150px">Moment</th><th>What the user sees</th><th>What is true on disk</th></tr></thead>
+    <tbody>
+      <tr><td>Tap</td><td>Icon fills immediately; a subtle pending mark</td><td><code>saved_local = 1</code>, outbox row written, same transaction</td></tr>
+      <tr><td>Offline, app killed</td><td>Reopens with the icon still filled</td><td>Both rows survived; worker is queued by constraint</td></tr>
+      <tr><td>Reconnect</td><td>Pending mark clears; nothing moves</td><td><code>saved_remote = 1</code>, <code>saved_local = NULL</code>, outbox row deleted</td></tr>
+      <tr><td>Server rejects (4xx)</td><td>Icon reverts, with an explanation</td><td><code>saved_local = NULL</code>, outbox row deleted — server wins</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2><span class="cn">Chapter 200</span>The sync worker</h2>
+  <div class="code1"><div class="lab">data:feed — worker</div><pre>@HiltWorker
+class SyncWorker @AssistedInject constructor(
+    @Assisted ctx: Context,
+    @Assisted params: WorkerParameters,
+    private val api: FeedApi,
+    private val db: AppDatabase,
+    private val articles: ArticleDao,
+    private val outbox: OutboxDao,
+    private val signals: SyncSignals,
+) : CoroutineWorker(ctx, params) {
+
+    override suspend fun doWork(): Result {
+        var retryable = false
+
+        for (op in outbox.oldestBatch(limit = 50)) {
+            try {
+                val dto = api.updateState(
+                    id = op.articleId,
+                    key = op.opId,                          // survives retries
+                    body = StatePatchDto(saved = op.saved),
+                )
+                db.withTransaction {
+                    articles.applyServerState(dto.id, dto.saved, dto.updatedAt)
+                    outbox.delete(op.articleId)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                retryable = true                            // offline — keep the row
+            } catch (e: HttpException) {
+                if (e.code() == 429 || e.code() in 500..599) {
+                    retryable = true
+                } else {
+                    // 4xx will never succeed. Drop the intent, revert to server truth,
+                    // and make sure the user is told rather than silently overruled.
+                    db.withTransaction {
+                        articles.clearLocalOverride(op.articleId)
+                        outbox.delete(op.articleId)
+                    }
+                    signals.publish(SyncResult.Rejected(op.articleId))
+                }
+            }
+        }
+
+        signals.publish(if (retryable) SyncResult.Failed else SyncResult.Ok)
+        return if (retryable) Result.retry() else Result.success()
+    }
+}
+
+class SyncScheduler @Inject constructor(@ApplicationContext private val ctx: Context) {
+    fun requestSync() = WorkManager.getInstance(ctx).enqueueUniqueWork(
+        "outbox-sync",
+        ExistingWorkPolicy.KEEP,                            // draining is idempotent
+        OneTimeWorkRequestBuilder&lt;SyncWorker&gt;()
+            .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build(),
+    )
+}</pre></div>
+
+  <p><strong>Error classification is the substance of this worker.</strong> Retrying a 400 forever burns battery and never succeeds; not retrying a 503 loses the user's data. The three buckets — transient (retry), permanent (drop and inform), cancellation (rethrow) — are what an interviewer is checking for, and most candidates write a single <code>catch (e: Exception) { return Result.retry() }</code>.</p>
+  <p><strong>Why <code>KEEP</code> and not <code>APPEND</code>.</strong> The worker drains the whole outbox, so a second request arriving while one runs is redundant. The honest caveat: an operation enqueued <em>after</em> the batch read but before completion would wait for the next trigger. Two mitigations, and naming one unprompted is a strong signal — re-check <code>outbox.count()</code> at the end of <code>doWork</code> and return <code>Result.retry()</code> if non-zero, and keep a low-frequency periodic worker as the safety net rather than the mechanism.</p>
+  <p><strong>Why <code>oldestBatch(limit = 50)</code> and not the whole table.</strong> A user who spent a week offline can accumulate thousands of operations; an unbounded loop inside a worker with a ten-minute execution limit gets killed halfway through, with no partial progress recorded if the deletes were in one outer transaction. Bounded batches make progress monotonic.</p>
+
+  <h2><span class="cn">Chapter 201</span>Conflict resolution</h2>
+  <p>Two devices toggle the same article while both are offline. Whatever the strategy, state it explicitly — "the server wins" is a legitimate answer; "I hadn't thought about it" is the one that fails the round.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:170px">Strategy</th><th>Mechanism</th><th>Correct when</th></tr></thead>
+    <tbody>
+      <tr><td>Server authoritative</td><td>Client sends intent; the server's response is applied verbatim, overwriting local. What this feature does.</td><td>The server can validate — entitlements, quotas, moderation. Simplest to reason about and the right default.</td></tr>
+      <tr><td>Last-write-wins</td><td>Compare timestamps, newest wins.</td><td>Only with a server-issued clock. Device clocks are user-settable, so LWW on client time is a data-loss bug wearing a strategy's name.</td></tr>
+      <tr><td>Merge by operation</td><td>Send the <em>operation</em> ("add to set"), not the resulting value, and let the server apply it.</td><td>Concurrent edits to different parts of one object, or set membership. Naturally convergent — order does not matter.</td></tr>
+      <tr><td>Surface to the user</td><td>Keep both versions, ask.</td><td>The conflict is semantically meaningful and expensive to get wrong — a document body, not a bookmark.</td></tr>
+    </tbody>
+  </table></div>
+  <p>This feature is quietly in the third category and it is worth noticing why: "saved" is set membership, and <em>add</em> and <em>remove</em> are idempotent operations. Two devices both saving converge on saved regardless of arrival order. Had the field been a counter or a free-text note, the same architecture with the same code would be wrong — the outbox would need to carry deltas rather than final values. The architecture is not what makes it converge; the shape of the operation is.</p>
+
+  <h2><span class="cn">Chapter 202</span>Testing the slice</h2>
+  <p>Everything above runs on the JVM. Nothing here needs an emulator except the Room migration test, which needs one because it must exercise real SQLite.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:180px">Under test</th><th>How</th><th>The assertion that matters</th></tr></thead>
+    <tbody>
+      <tr><td><code>RemoteMediator</code></td><td>Call <code>load()</code> directly with a hand-built <code>PagingState</code>. No Pager needed.</td><td><code>REFRESH</code> after an offline write leaves <code>saved_local</code> intact — the data-loss regression from Chapter 193.</td></tr>
+      <tr><td>Paging end to end</td><td><code>paging-testing</code>: <code>repo.feed(id).asSnapshot { scrollTo(60) }</code></td><td>Exactly four pages fetched, no duplicate ids across boundaries.</td></tr>
+      <tr><td>Repository writes</td><td>In-memory Room plus a fake <code>FeedApi</code>.</td><td>After <code>setSaved</code>, both the override and the outbox row exist <em>in the same transaction</em> — kill the process between them and the feature is broken.</td></tr>
+      <tr><td>ViewModel</td><td>Turbine on <code>state</code> and <code>events</code>, <code>StandardTestDispatcher</code>.</td><td>A failed sync emits exactly one snackbar event, and re-collecting after rotation does not replay it.</td></tr>
+      <tr><td>Worker</td><td>Construct it directly; fake api returns 503 then 200.</td><td>The first pass returns <code>retry()</code> and keeps the row; the second clears it. Same <code>opId</code> both times.</td></tr>
+      <tr><td>Migrations</td><td><code>MigrationTestHelper</code> on-device, real files.</td><td>Every adjacent version pair, with rows present. See Part XXXI.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="code1"><div class="lab">The regression test worth writing first</div><pre>@Test fun refresh_preserves_unsynced_local_edits() = runTest {
+    // given: an article cached, then saved while offline
+    articles.upsertAll(listOf(article(id = "a1", savedRemote = false)))
+    repo.setSaved("a1", true)
+
+    // when: the feed refreshes from the network
+    mediator.load(LoadType.REFRESH, emptyPagingState())
+
+    // then: the user's intent survived, and is still owed to the server
+    assertTrue(articles.row("a1").saved)
+    assertEquals(1, outbox.count())
+}</pre></div>
+  <p>This test fails against the canonical <code>RemoteMediator</code> sample, which is the point. It encodes the one behaviour that separates a cache from an offline-first store, and it is cheap enough to run on every commit.</p>
+
+  <h2><span class="cn">Chapter 203</span>Interview tasks built on this feature</h2>
+  <p>Interviewers rarely ask you to build all of the above — there is no time. They take one seam and press on it. These are the tasks that actually appear, with what each is really measuring and the trap that catches strong candidates.</p>
+
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:225px">Task</th><th style="min-width:125px">Level · time</th><th>What it is really testing</th></tr></thead>
+    <tbody>
+      <tr><td>Wire a paginated list from an existing API to a Compose screen.</td><td><span class="diff d2">Core</span> 60 min</td><td>Whether you reach for a database at all, or paginate straight from the network into memory. The latter is the down-level.</td></tr>
+      <tr><td>Add offline support to this working online-only feed.</td><td><span class="diff d3">Advanced</span> take-home</td><td>Whether "offline" becomes a branch or becomes the architecture. Look for a single source of truth and no <code>isOnline</code> checks.</td></tr>
+      <tr><td>The save button feels laggy. Fix it.</td><td><span class="diff d2">Core</span> 30 min</td><td>Optimistic update plus durable intent — not a faster network call. Follow-up is always "what if it fails?".</td></tr>
+      <tr><td>Users report saves disappearing after a few minutes.</td><td><span class="diff d3">Advanced</span> 45 min</td><td>Debugging judgment. The bug is refresh deleting unsynced local state. Do you reproduce before theorising?</td></tr>
+      <tr><td>Make this ViewModel testable.</td><td><span class="diff d1">Starter</span> 30 min</td><td>Injected dispatchers and clock, an interface at the repository boundary, no static <code>System.currentTimeMillis()</code>.</td></tr>
+      <tr><td>Two devices, both offline, both toggle. What ships?</td><td><span class="diff d4">Staff+</span> discussion</td><td>Whether you have a stated conflict policy and know why device clocks disqualify LWW.</td></tr>
+      <tr><td>Add pull-to-refresh without losing scroll position.</td><td><span class="diff d2">Core</span> 30 min</td><td><code>cachedIn</code>, <code>refresh()</code> versus <code>invalidate()</code>, and what a <code>REFRESH</code> does to the remote keys table.</td></tr>
+      <tr><td>Review this PR (the anti-pattern column of Chapter 198).</td><td><span class="diff d2">Core</span> 45 min</td><td>Whether you spot that a failed refresh blanks 200 cached rows — and whether you lead with it or with naming style.</td></tr>
+      <tr><td>The list stutters when a save toggles. Diagnose.</td><td><span class="diff d3">Advanced</span> 30 min</td><td>Missing <code>key</code>, work inside the item body, or a state copy that re-emits the whole list. Do you measure or guess?</td></tr>
+      <tr><td>Extend the outbox to support commenting.</td><td><span class="diff d4">Staff+</span> 45 min</td><td>Whether you notice that coalescing by entity id is wrong for append-only operations. The best question in this list.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="q">
+    <p class="qt">Task · live coding, 45 minutes</p>
+    <p class="qh">"Here is a working online-only feed. Make it work offline."</p>
+    <h4>What the interviewer is watching for</h4>
+    <p>Not the code — the first sentence. A candidate who starts typing is guessing. A candidate who asks "should the user be able to <em>write</em> offline, or only read?" has already separated the two problems that this task hides, and the answer changes the design by an order of magnitude.</p>
+    <h4>Graded expectations</h4>
+    <p><span class="chip c3">L3</span> Adds Room, caches responses, reads from the cache when a request fails. Works, and has an <code>if (networkAvailable)</code> in it. Writes are not addressed unless prompted.</p>
+    <p><span class="chip c4">L4</span> Inverts the flow: the database becomes the only thing the UI reads and the network becomes a writer. Names the consequence — there is no offline branch because there is no online branch either. Adds an outbox for writes, generates the idempotency key at commit, and identifies that refresh must not delete unsynced rows. States what is <em>not</em> handled: deletions on the server produce stale local rows without tombstones.</p>
+    <p><span class="chip c5">L5</span> Adds the organisational frame: this is a pattern the whole app will copy, so it ships as a documented module with a template and a lint rule, not as one feature's cleverness. Names the measurable success criterion — not "it works offline" but a drop in save-related support tickets and a rise in successful writes per session. Names the exit: if the product later needs real-time collaboration, this outbox is the wrong shape and here is what replaces it.</p>
+    <h4>Follow-ups you should expect</h4>
+    <ol>
+      <li>"The user saves while offline, then the article is deleted server-side. What happens?" — The sync gets a 404, which is permanent: drop the operation, revert the override, tell the user. Without tombstones the row itself lingers until the next full refresh; say so rather than implying convergence you have not built.</li>
+      <li>"How large can the outbox get?" — Unbounded is a bug. Cap it, and decide what full means: reject new writes with a visible error, or drop the oldest. Never fail silently.</li>
+      <li>"Why not just retry in a coroutine instead of WorkManager?" — Because a coroutine dies with the process and the user's intent must survive a reboot. WorkManager is the only thing on Android that guarantees eventually.</li>
+    </ol>
+  </div>
+
+  <div class="q">
+    <p class="qt">Task · debugging, 45 minutes</p>
+    <p class="qh">"Users say articles they saved on the train are unsaved by the time they get to work."</p>
+    <h4>Why this is the best task on the list</h4>
+    <p>It has a specific, findable root cause, and the path to it is pure methodology. The bug is <code>DELETE FROM articles</code> on <code>REFRESH</code> destroying rows whose local intent had not yet been sent. Everything about the report points at it — offline writes, then a reconnect — and yet the common failure is to start reading the sync worker, because that is where "saving" feels like it lives.</p>
+    <h4>The path a strong candidate takes</h4>
+    <ol>
+      <li><strong>Reproduce before theorising.</strong> Airplane mode, save, re-enable, observe. Two minutes, and it converts a vague report into a deterministic case.</li>
+      <li><strong>Establish where the value dies.</strong> Query the table directly after each step. Is the outbox row gone, or the override? Different columns mean different bugs.</li>
+      <li><strong>Read the write path in reverse</strong> from the column that lost its value, not forward from the button.</li>
+      <li><strong>Write the failing test first</strong> — the one in Chapter 202 — then fix. A bug this cheap to reproduce and this expensive in trust must never regress.</li>
+      <li><strong>Ask what else shares the shape.</strong> Any other <code>REFRESH</code> handler in the app that clears a table has the same defect today.</li>
+    </ol>
+    <h4>The answer that gets down-levelled</h4>
+    <p>"I'd add logging and ship it to see what happens." Sometimes correct for a genuine heisenbug; here it is an admission that a locally reproducible bug was not reproduced. The reflex an interviewer is checking for is <em>reproduce, then bisect</em> — everything else is commentary.</p>
+  </div>
+
+  <div class="q">
+    <p class="qt">Task · design discussion, 20 minutes</p>
+    <p class="qh">"Walk me through what happens between the tap and the pixel when a user saves an article."</p>
+    <h4>What this question is for</h4>
+    <p>It cannot be answered from memorised vocabulary, which is exactly why it is asked. Either you have built this path or you have not, and the answer reveals which within thirty seconds.</p>
+    <h4>The shape of a complete answer</h4>
+    <p>Tap arrives at a lambda in the item body, which does no work beyond calling the ViewModel. The ViewModel launches in <code>viewModelScope</code> and calls the repository, which opens one Room transaction writing both the local override and the outbox row — durable before anything else happens. That commit invalidates the Room query; the <code>PagingSource</code> re-emits; <code>COALESCE</code> yields the new value with <code>pending = 1</code>; Compose recomposes just that item because the list has stable keys. The whole loop is local and takes a frame or two. Separately, the repository asks WorkManager for a unique sync; when connectivity allows, the worker sends the intent with the idempotency key generated at tap time, applies the server's response, clears the override, deletes the outbox row, and publishes on a <code>SharedFlow</code> that anyone interested can observe. The user sees the pending mark disappear. The network was never on the path between the tap and the pixel.</p>
+    <h4>Follow-ups</h4>
+    <ol>
+      <li>"Where could this lose data?" — Between the two writes if they were not in one transaction; on an unbounded outbox; on a 4xx that is dropped without telling the user.</li>
+      <li>"Which part would you delete if the deadline halved?" — The pending affordance, and the <code>SharedFlow</code>. Not the transaction, not the idempotency key: those are correctness, and the rest is polish.</li>
+      <li>"What if the product wants an undo?" — The outbox already is one, for as long as the row is unsent. Making undo reliable after sync is a different feature — a server-side reversal — and it should be scoped as one.</li>
+    </ol>
+  </div>
+
+  <h2><span class="cn">Chapter 204</span>What is actually being graded</h2>
+  <div class="tw"><table>
+    <thead><tr><th style="min-width:165px">Seam</th><th>The Senior answer</th><th>The Staff answer</th></tr></thead>
+    <tbody>
+      <tr><td>Source of truth</td><td>Cache network responses in Room.</td><td>Invert it: the UI reads only the database, so no code path knows whether the device is online.</td></tr>
+      <tr><td>Pagination</td><td>Paging 3 with a <code>RemoteMediator</code>, following the sample.</td><td>Persist the cursor because it is opaque; keep the mediator's two writes in one transaction; refuse to delete unsynced rows on refresh.</td></tr>
+      <tr><td>Writes</td><td>Optimistic update, then call the API.</td><td>Durable before dispatch; idempotency key generated at commit; a bounded outbox drained by WorkManager.</td></tr>
+      <tr><td>Streams</td><td>Expose <code>StateFlow</code> from the ViewModel.</td><td>State, multicast signal and one-shot event are three different primitives, chosen by question rather than by habit.</td></tr>
+      <tr><td>Errors</td><td>Show an error screen when a call fails.</td><td>Classify transient, permanent and cancellation; degrade the UI in proportion to what is cached.</td></tr>
+      <tr><td>Conflicts</td><td>Not mentioned until asked.</td><td>A stated policy, with the reason device clocks disqualify last-write-wins and why set operations converge for free.</td></tr>
+      <tr><td>Testing</td><td>The ViewModel is unit tested.</td><td>Injected dispatcher and clock make the whole slice a JVM test; the first test written is the data-loss regression.</td></tr>
+      <tr><td>Scope</td><td>Builds the feature.</td><td>Names what was not built — tombstones, outbox bounds, undo after sync — before being asked.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XXXII rapid recall</h4>
+    <ul>
+      <li>The UI reads the database and nothing else; the network and the worker are writers.</li>
+      <li>An opaque cursor must be persisted — it cannot be recomputed after process death.</li>
+      <li><code>RemoteMediator</code> fills the cache; the Room <code>PagingSource</code> is what the UI reads.</li>
+      <li>Store the cursor and the rows in one transaction, or a crash creates an unreachable gap.</li>
+      <li><code>REFRESH</code> must never delete rows carrying unsynced local intent.</li>
+      <li>Split server truth from local intent into two columns; merge them with <code>COALESCE</code> in SQL.</li>
+      <li>Durable before dispatch: one transaction writes the override and the outbox row.</li>
+      <li>Generate the idempotency key at user commit, persist it, reuse it on every retry.</li>
+      <li>Coalesce the outbox by entity for toggles; append by operation id for distinct facts.</li>
+      <li><code>cachedIn(viewModelScope)</code> in the ViewModel, never in the repository.</li>
+      <li><code>StateFlow</code> for state, <code>SharedFlow</code> for multicast signals, <code>Channel</code> for one-shot events.</li>
+      <li>Classify errors three ways: retry, drop and inform, rethrow cancellation.</li>
+      <li>Degrade, never blank — a refresh error with cached rows is a banner, not a takeover.</li>
+      <li>Injected dispatcher and clock are what make the entire slice a JVM test.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p31" data-p="p31"><span class="k">Previous</span><span class="t">← Part XXXI</span></a><a class="r" href="#p33" data-p="p33"><span class="k">Next</span><span class="t">Part XXXIII — Greenfield Tasks →</span></a></div>
+</section>

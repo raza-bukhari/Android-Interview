@@ -1,0 +1,501 @@
+<section class="page" id="p34" data-selftest>
+  <header class="phead">
+    <p class="eyebrow">Part XXXIV</p>
+    <h1>Rapid <em>recall</em></h1>
+    <p class="deck">Every term you must be able to define in one breath, with the shortest example that makes it true. Built for the morning of the interview and for the five minutes before a call — definitions first, mechanism second, nothing you cannot say out loud in fifteen seconds.</p>
+  </header>
+
+  <h2><span class="cn">Chapter 216</span>How to drill this part</h2>
+  <p>Reading definitions is close to worthless; retrieving them is where the learning is. The protocol that works:</p>
+  <ol>
+    <li><strong>Cover the right column.</strong> Read the term, say your definition aloud, then uncover. The friction is the point.</li>
+    <li><strong>Grade yourself in two buckets, not three.</strong> Either you produced a mechanism, or you produced vocabulary. "It's lifecycle-aware" is vocabulary.</li>
+    <li><strong>Chase every miss one level deeper.</strong> If you could not define <code>SupervisorJob</code>, you also cannot answer "what happens when a child fails?" — which is the question that will actually be asked.</li>
+    <li><strong>Re-drill misses only.</strong> Three passes over what you missed beats one pass over everything.</li>
+  </ol>
+  <div class="note"><span class="lab">What this part is not</span><p>These are the <em>opening</em> answers — the thirty seconds that buy you the right to keep talking. A Staff loop is decided by the follow-ups: mechanism, failure mode, alternative, and the condition that flips the choice. Use this part to make the recall automatic so your attention is free for the part that scores.</p></div>
+
+  <h2><span class="cn">Chapter 217</span>Coroutines — the core vocabulary</h2>
+  <div class="deflist">
+
+    <div class="def"><div class="dt">Coroutine</div><div class="dd">
+      <p>An instance of a suspendable computation. Not a thread: it is an object the runtime can pause and resume, so tens of thousands can share a handful of threads. Cheap to create — the cost is an allocation, not a stack.</p></div></div>
+
+    <div class="def"><div class="dt"><code>suspend</code> function</div><div class="dd">
+      <p>A function that can pause without blocking its thread, and can only be called from another suspending function or a coroutine builder. The compiler rewrites it into a state machine that takes a hidden <code>Continuation</code> parameter.</p>
+      <pre>suspend fun user(id: String): User = api.fetch(id)   // no thread held while waiting</pre></div></div>
+
+    <div class="def"><div class="dt">Continuation</div><div class="dd">
+      <p>"The rest of the function", captured as an object. Suspension means storing the continuation and returning the thread; resumption means calling it back with a result.</p></div></div>
+
+    <div class="def"><div class="dt"><code>CoroutineContext</code></div><div class="dd">
+      <p>An indexed set of elements carried by every coroutine — <code>Job</code>, dispatcher, name, exception handler. Combined with <code>+</code>; children inherit it and may override individual elements.</p>
+      <pre>Dispatchers.IO + SupervisorJob() + CoroutineName("sync")</pre></div></div>
+
+    <div class="def"><div class="dt"><code>CoroutineScope</code></div><div class="dd">
+      <p>An object holding a context whose <code>Job</code> defines a lifetime. Everything launched in it becomes a child of that job, so cancelling the scope cancels all of it. A scope is a <em>lifetime</em>, not a thread pool.</p></div></div>
+
+    <div class="def"><div class="dt"><code>Job</code></div><div class="dd">
+      <p>The handle and lifecycle of a coroutine: <em>New → Active → Completing → Completed</em>, or <em>Cancelling → Cancelled</em>. Jobs form a parent–child tree, which is what makes cancellation and error propagation automatic.</p></div></div>
+
+    <div class="def"><div class="dt">Structured concurrency</div><div class="dd">
+      <p>Every coroutine has a parent; a scope does not complete until all its children complete; and cancellation and failures propagate along that tree. The consequence is the point: <strong>no coroutine can outlive the scope that started it</strong>, so work cannot leak.</p></div></div>
+
+    <div class="def"><div class="dt">Unsupervised scope</div><div class="dd">
+      <p>The default — a plain <code>Job</code>, as in <code>coroutineScope { }</code>. One child failing cancels the parent, which cancels every sibling. Correct when the children are parts of one indivisible result.</p>
+      <pre>coroutineScope {
+    val a = async { first() }
+    val b = async { second() }   // if first() throws, this is cancelled
+    a.await() + b.await()
+}</pre></div></div>
+
+    <div class="def"><div class="dt">Supervised scope</div><div class="dd">
+      <p><code>SupervisorJob</code> or <code>supervisorScope { }</code>. A child's <em>failure</em> stops at the supervisor: siblings and the parent survive. Cancellation still flows <em>downward</em> normally — supervision changes upward failure propagation only.</p>
+      <pre>supervisorScope {
+    launch { risky() }      // may fail
+    launch { other() }      // still runs
+}</pre></div></div>
+
+    <div class="def"><div class="dt">Cancellation</div><div class="dd">
+      <p><strong>Cooperative.</strong> Cancelling moves the job to <em>Cancelling</em> and makes every suspension point throw <code>CancellationException</code>. Code that neither suspends nor checks <code>isActive</code> keeps running to completion regardless.</p>
+      <pre>while (isActive) { crunch() }        // cooperative
+while (true) { crunch() }            // uncancellable</pre></div></div>
+
+    <div class="def"><div class="dt"><code>CancellationException</code></div><div class="dd">
+      <p>The normal, expected signal of cancellation — the parent ignores it rather than treating it as a failure. Catching it without rethrowing silently breaks structured concurrency, which is why <code>catch (e: Exception)</code> and <code>runCatching</code> are hazards in coroutine code.</p></div></div>
+
+    <div class="def"><div class="dt"><code>ensureActive()</code> / <code>yield()</code></div><div class="dd">
+      <p>Cooperation points for CPU-bound loops that never suspend. <code>ensureActive()</code> throws if cancelled; <code>yield()</code> also gives other coroutines a turn on the dispatcher.</p></div></div>
+
+    <div class="def"><div class="dt"><code>NonCancellable</code></div><div class="dd">
+      <p>The context that lets cleanup suspend <em>after</em> cancellation. Without it, a suspending call inside <code>finally</code> throws immediately and the cleanup never happens.</p>
+      <pre>try { work() } finally {
+    withContext(NonCancellable) { db.close() }
+}</pre></div></div>
+
+    <div class="def"><div class="dt">Dispatcher</div><div class="dd">
+      <p>Decides which thread a coroutine resumes on. <code>Main</code> — UI. <code>Default</code> — CPU work, pool sized to cores. <code>IO</code> — blocking calls, up to 64 threads by default. <code>Unconfined</code> — resumes wherever it was resumed; for tests and internals, not app code.</p></div></div>
+
+    <div class="def"><div class="dt"><code>withContext</code></div><div class="dd">
+      <p>Runs a block in a different context and returns its result, suspending the caller. The tool for main-safety, and it belongs to the function that knows it blocks — never to its call sites.</p>
+      <pre>suspend fun read() = withContext(io) { file.readText() }</pre></div></div>
+
+    <div class="def"><div class="dt"><code>launch</code> vs <code>async</code></div><div class="dd">
+      <p><code>launch</code> returns a <code>Job</code> for fire-and-forget work; an exception propagates to the parent immediately. <code>async</code> returns a <code>Deferred&lt;T&gt;</code> for a value; the exception is held until <code>await()</code>. An <code>async</code> whose result is never awaited swallows its failure.</p></div></div>
+
+    <div class="def"><div class="dt"><code>coroutineScope</code> vs <code>supervisorScope</code></div><div class="dd">
+      <p>Both are suspending builders that wait for all children. They differ in exactly one way: whether one child's failure cancels the others. Neither creates a new thread.</p></div></div>
+
+    <div class="def"><div class="dt"><code>CoroutineExceptionHandler</code></div><div class="dd">
+      <p>A last-resort handler for uncaught exceptions from <code>launch</code> at the root of a scope. It does nothing for <code>async</code>, whose exception belongs to the <code>Deferred</code>, and nothing for a non-root coroutine, which delegates to its parent.</p></div></div>
+
+    <div class="def"><div class="dt"><code>runBlocking</code></div><div class="dd">
+      <p>Bridges blocking and suspending worlds by blocking the current thread until the block completes. Legitimate in <code>main</code> and in tests; in app code it is how you write an ANR.</p></div></div>
+
+    <div class="def"><div class="dt"><code>Mutex</code> / <code>Semaphore</code></div><div class="dd">
+      <p>Suspending mutual exclusion and bounded permits. They suspend rather than block, and are not reentrant — taking the same mutex twice in one call chain deadlocks.</p>
+      <pre>mutex.withLock { state = state + 1 }</pre></div></div>
+
+    <div class="def"><div class="dt"><code>viewModelScope</code> / <code>lifecycleScope</code></div><div class="dd">
+      <p>Prebuilt scopes cancelled at <code>onCleared</code> and <code>onDestroy</code> respectively. In a Fragment, <code>lifecycleScope</code> outlives the <em>view</em> — anything touching the view belongs to <code>viewLifecycleOwner.lifecycleScope</code>.</p></div></div>
+
+  </div>
+
+  <h2><span class="cn">Chapter 218</span>Flow and reactive streams</h2>
+  <div class="deflist">
+
+    <div class="def"><div class="dt"><code>Flow</code></div><div class="dd">
+      <p>A cold asynchronous stream. Nothing executes until a terminal operator collects it, and each collector gets its own independent execution of the whole chain.</p>
+      <pre>flow { emit(1); emit(2) }.collect { println(it) }</pre></div></div>
+
+    <div class="def"><div class="dt">Cold vs hot</div><div class="dd">
+      <p>Cold produces per collector and starts on collection (<code>Flow</code>). Hot exists independently of collectors and is shared (<code>SharedFlow</code>, <code>StateFlow</code>, <code>Channel</code>). Five collectors on a cold network flow means five requests.</p></div></div>
+
+    <div class="def"><div class="dt"><code>StateFlow</code></div><div class="dd">
+      <p>A hot flow with exactly one current value, conflated and distinct-until-changed. The state holder's primitive: it always has a value to render, and it never re-emits an equal one.</p>
+      <pre>private val _s = MutableStateFlow(UiState())
+val s: StateFlow&lt;UiState&gt; = _s.asStateFlow()</pre></div></div>
+
+    <div class="def"><div class="dt"><code>SharedFlow</code></div><div class="dd">
+      <p>A hot multicast flow with configurable <code>replay</code> and buffer, and no notion of a current value. For signals several unrelated observers care about.</p></div></div>
+
+    <div class="def"><div class="dt"><code>Channel</code></div><div class="dd">
+      <p>A hot queue where each element is delivered to exactly one consumer. The right primitive for one-shot events — navigation, snackbars — because nothing is replayed and nothing is dropped while the screen is stopped.</p></div></div>
+
+    <div class="def"><div class="dt"><code>_.update { }</code></div><div class="dd">
+      <p>Atomic compare-and-set on a <code>MutableStateFlow</code>. Required because <code>value = value.copy(...)</code> is a read-modify-write that loses updates under concurrency.</p>
+      <pre>_state.update { it.copy(items = it.items + x) }</pre></div></div>
+
+    <div class="def"><div class="dt"><code>stateIn</code> / <code>shareIn</code></div><div class="dd">
+      <p>Convert a cold flow into a hot one shared by all collectors, within a scope. <code>stateIn</code> also keeps a current value.</p>
+      <pre>.stateIn(viewModelScope, WhileSubscribed(5_000), Loading)</pre></div></div>
+
+    <div class="def"><div class="dt"><code>SharingStarted</code></div><div class="dd">
+      <p>The sharing policy. <code>Eagerly</code> — starts now, never stops. <code>Lazily</code> — starts on first collector, never stops. <code>WhileSubscribed(5_000)</code> — the Android default, because five seconds outlives a rotation and stops when the screen is genuinely gone.</p></div></div>
+
+    <div class="def"><div class="dt"><code>flowOn</code></div><div class="dd">
+      <p>Changes the dispatcher of everything <em>upstream</em> of it, and nothing downstream. Context preservation means a flow can never change the collector's context from inside <code>emit</code>.</p></div></div>
+
+    <div class="def"><div class="dt"><code>map</code> vs <code>transform</code></div><div class="dd">
+      <p><code>map</code> emits exactly one value per input; <code>transform</code> may emit zero or many. <code>filter</code>, <code>take</code>, and friends are all <code>transform</code> underneath.</p></div></div>
+
+    <div class="def"><div class="dt"><code>flatMapLatest</code></div><div class="dd">
+      <p>Cancels the previous inner flow when a new value arrives. The correct operator for search-as-you-type, where an in-flight query for a stale term is waste.</p>
+      <pre>query.debounce(300).flatMapLatest { repo.search(it) }</pre></div></div>
+
+    <div class="def"><div class="dt"><code>flatMapMerge</code> / <code>flatMapConcat</code></div><div class="dd">
+      <p><code>Merge</code> runs inner flows concurrently and interleaves results; <code>Concat</code> runs them strictly in sequence. Merge is faster and unordered; concat preserves order and serialises.</p></div></div>
+
+    <div class="def"><div class="dt"><code>combine</code> vs <code>zip</code></div><div class="dd">
+      <p><code>combine</code> emits on <em>any</em> source emitting, using each other's latest — for derived state. <code>zip</code> pairs elements strictly by index and waits for both — for correlated streams.</p></div></div>
+
+    <div class="def"><div class="dt"><code>buffer</code> / <code>conflate</code> / <code>collectLatest</code></div><div class="dd">
+      <p>Three answers to a slow collector: <code>buffer</code> keeps everything and runs producer and consumer concurrently; <code>conflate</code> drops intermediate values; <code>collectLatest</code> cancels the in-progress collector body when a newer value arrives.</p></div></div>
+
+    <div class="def"><div class="dt">Backpressure</div><div class="dd">
+      <p>What happens when a producer outpaces its consumer. <code>Flow</code> handles it by suspending the producer — which is why an unbounded buffer, added to "fix" slowness, converts a stall into an out-of-memory error.</p></div></div>
+
+    <div class="def"><div class="dt"><code>callbackFlow</code> / <code>awaitClose</code></div><div class="dd">
+      <p>Wraps a callback API as a flow. <code>awaitClose</code> is mandatory — it keeps the flow alive and is where the listener is unregistered when the collector goes away.</p>
+      <pre>callbackFlow {
+    val l = Listener { trySend(it) }
+    api.register(l)
+    awaitClose { api.unregister(l) }
+}</pre></div></div>
+
+    <div class="def"><div class="dt"><code>catch</code> and <code>retry</code></div><div class="dd">
+      <p><code>catch</code> handles exceptions from <em>upstream</em> only — it cannot catch a failure in the collector's own lambda. <code>retryWhen</code> resubscribes; use it with a predicate and jitter, never unconditionally.</p></div></div>
+
+    <div class="def"><div class="dt">Turbine</div><div class="dd">
+      <p>The test library for flows: <code>awaitItem()</code>, <code>awaitComplete()</code>, and an assertion that nothing more was emitted. Its real value is failing loudly on unconsumed emissions.</p></div></div>
+
+  </div>
+
+  <h2><span class="cn">Chapter 219</span>Kotlin language</h2>
+  <div class="deflist">
+
+    <div class="def"><div class="dt"><code>data class</code></div><div class="dd">
+      <p>Generates <code>equals</code>, <code>hashCode</code>, <code>toString</code>, <code>copy</code> and <code>componentN</code> from the <em>primary constructor</em> properties only. Adding a property is a binary-incompatible change to <code>copy</code>.</p></div></div>
+
+    <div class="def"><div class="dt"><code>sealed class</code> / <code>sealed interface</code></div><div class="dd">
+      <p>A closed hierarchy known at compile time, so <code>when</code> can be exhaustive without an <code>else</code>. Prefer <code>sealed interface</code>: it permits multiple implementation and avoids the constructor.</p></div></div>
+
+    <div class="def"><div class="dt"><code>object</code> / <code>companion object</code></div><div class="dd">
+      <p>A singleton declaration, and the per-class singleton that holds what other languages call statics. A <code>companion object</code> is a real object, so its members are not free — <code>const val</code> and top-level functions are.</p></div></div>
+
+    <div class="def"><div class="dt"><code>value class</code></div><div class="dd">
+      <p>A single-property wrapper erased at runtime, giving type safety with no allocation. Boxes when used as a generic argument, as a nullable, or through an interface.</p>
+      <pre>@JvmInline value class UserId(val raw: String)</pre></div></div>
+
+    <div class="def"><div class="dt"><code>inline</code> / <code>reified</code></div><div class="dd">
+      <p><code>inline</code> copies a function's body to the call site, removing the lambda allocation — worth it for small higher-order functions, harmful for large ones. <code>reified</code> is only possible because of inlining: it keeps the type argument at runtime.</p>
+      <pre>inline fun &lt;reified T&gt; Bundle.get(k: String): T? = get(k) as? T</pre></div></div>
+
+    <div class="def"><div class="dt"><code>crossinline</code> / <code>noinline</code></div><div class="dd">
+      <p><code>crossinline</code> forbids a non-local <code>return</code> from an inlined lambda; <code>noinline</code> exempts a parameter from inlining so it can be stored or passed on.</p></div></div>
+
+    <div class="def"><div class="dt">Variance — <code>out</code> / <code>in</code></div><div class="dd">
+      <p><code>out T</code> — covariant, a producer, T appears only in return position. <code>in T</code> — contravariant, a consumer, T only in parameters. The mnemonic is producer-extends, consumer-super.</p></div></div>
+
+    <div class="def"><div class="dt">Star projection <code>&lt;*&gt;</code></div><div class="dd">
+      <p>"Some specific type, unknown here." You may read values as the upper bound and may not write any.</p></div></div>
+
+    <div class="def"><div class="dt">Delegation — <code>by</code></div><div class="dd">
+      <p>Forwards interface implementation to another object, or a property's get/set to a delegate. Composition without boilerplate.</p>
+      <pre>class Repo(db: Dao) : Dao by db
+val heavy by lazy { build() }</pre></div></div>
+
+    <div class="def"><div class="dt"><code>lazy</code> vs <code>lateinit</code></div><div class="dd">
+      <p><code>lazy</code> — <code>val</code>, computed once on first access, thread-safe by default. <code>lateinit</code> — <code>var</code>, non-null, assigned later, throws if read first. Neither works for primitives via <code>lateinit</code>.</p></div></div>
+
+    <div class="def"><div class="dt">Scope functions</div><div class="dd">
+      <p><code>let</code> — transform, receiver as <code>it</code>. <code>run</code> — transform, receiver as <code>this</code>. <code>apply</code> — configure, returns receiver. <code>also</code> — side effect, returns receiver. <code>with</code> — non-extension <code>run</code>.</p></div></div>
+
+    <div class="def"><div class="dt">Extension function</div><div class="dd">
+      <p>Syntactic sugar for a static function taking the receiver as its first parameter. Resolved <em>statically</em>, so it never participates in polymorphism and never overrides a member.</p></div></div>
+
+    <div class="def"><div class="dt"><code>Sequence</code> vs <code>List</code></div><div class="dd">
+      <p><code>List</code> operators are eager and allocate an intermediate collection per step. <code>Sequence</code> is lazy and element-by-element. Sequences win on long chains over large data and lose on short chains over small data.</p></div></div>
+
+    <div class="def"><div class="dt">Nullability</div><div class="dd">
+      <p>Encoded in the type system: <code>T</code> and <code>T?</code> are different types. <code>?:</code> supplies a fallback, <code>?.</code> short-circuits, and <code>!!</code> is a deliberate crash you should be able to justify.</p></div></div>
+
+    <div class="def"><div class="dt">Platform type <code>T!</code></div><div class="dd">
+      <p>A type from Java whose nullability is unknown, so the compiler cannot check it. This is why annotating Java interop boundaries matters — an unannotated getter is a silent NPE.</p></div></div>
+
+    <div class="def"><div class="dt"><code>typealias</code></div><div class="dd">
+      <p>A name for an existing type. No new type, no safety — for readability only. Use a <code>value class</code> when you actually want distinctness.</p></div></div>
+
+    <div class="def"><div class="dt"><code>internal</code></div><div class="dd">
+      <p>Visible within the compilation module. The mechanism that makes a Gradle module's public surface intentional rather than accidental.</p></div></div>
+
+    <div class="def"><div class="dt"><code>@JvmStatic</code>, <code>@JvmOverloads</code>, <code>@JvmName</code></div><div class="dd">
+      <p>Interop controls: expose a companion member as a real static, generate overloads for default parameters, and rename for Java callers.</p></div></div>
+
+    <div class="def"><div class="dt">Contracts and smart casts</div><div class="dd">
+      <p>The compiler narrows a type after a check, but only when it can prove the value cannot change — so a mutable property from another module never smart-casts. A local <code>val</code> copy is the fix.</p></div></div>
+
+  </div>
+
+  <h2><span class="cn">Chapter 220</span>Jetpack Compose</h2>
+  <div class="deflist">
+
+    <div class="def"><div class="dt">Composable function</div><div class="dd">
+      <p>A function that describes UI by emitting into a composition rather than returning a view. The compiler plugin gives it a <code>Composer</code> parameter and positional memory.</p></div></div>
+
+    <div class="def"><div class="dt">Recomposition</div><div class="dd">
+      <p>Re-running composables whose inputs changed. It is optimistic, may be cancelled and restarted, can run out of order, and may execute in parallel — so a composable must be side-effect free and idempotent.</p></div></div>
+
+    <div class="def"><div class="dt">Slot table</div><div class="dd">
+      <p>The gap buffer holding the composition's structure and every <code>remember</code>ed value, keyed by call-site position. It is why <code>remember</code> works and why an unkeyed list reuses the wrong state.</p></div></div>
+
+    <div class="def"><div class="dt">Snapshot state</div><div class="dd">
+      <p><code>MutableState</code> read inside a composable registers that composable as a reader; writing it invalidates exactly those readers. Automatic, minimal-scope observation.</p></div></div>
+
+    <div class="def"><div class="dt"><code>remember</code> vs <code>rememberSaveable</code></div><div class="dd">
+      <p><code>remember</code> survives recomposition and dies with the composition. <code>rememberSaveable</code> also survives configuration change and process death via saved instance state — and therefore only holds what a <code>Bundle</code> can carry.</p></div></div>
+
+    <div class="def"><div class="dt">State hoisting</div><div class="dd">
+      <p>Move state to the lowest common ancestor of its readers and pass value plus callback down. Produces stateless, previewable, testable composables.</p>
+      <pre>@Composable fun Counter(n: Int, onInc: () -&gt; Unit)</pre></div></div>
+
+    <div class="def"><div class="dt">The three phases</div><div class="dd">
+      <p><em>Composition</em> — what to show. <em>Layout</em> — measure and place. <em>Drawing</em> — render. Reading state later rather than earlier skips phases: <code>Modifier.offset { }</code> costs layout only, while a recomposing offset costs all three.</p></div></div>
+
+    <div class="def"><div class="dt"><code>derivedStateOf</code></div><div class="dd">
+      <p>For state derived from other state where the derived value changes far less often than its inputs — the canonical case being <code>scrollPosition &gt; 0</code>, which changes twice across hundreds of scroll emissions.</p></div></div>
+
+    <div class="def"><div class="dt"><code>LaunchedEffect</code></div><div class="dd">
+      <p>Runs a coroutine tied to the composition, restarted when its keys change and cancelled on leaving. <code>key = Unit</code> means once per entry into composition.</p></div></div>
+
+    <div class="def"><div class="dt"><code>DisposableEffect</code></div><div class="dd">
+      <p>For non-suspending resources needing symmetric cleanup — registering and unregistering a listener. The <code>onDispose</code> block is mandatory.</p></div></div>
+
+    <div class="def"><div class="dt"><code>SideEffect</code></div><div class="dd">
+      <p>Runs after every <em>successful</em> composition. For publishing state to non-Compose code that must not see a composition that was discarded.</p></div></div>
+
+    <div class="def"><div class="dt"><code>rememberUpdatedState</code></div><div class="dd">
+      <p>Keeps a long-lived effect referencing the latest lambda without restarting it — the fix for a timer whose callback is stale but which must not be cancelled.</p></div></div>
+
+    <div class="def"><div class="dt"><code>produceState</code></div><div class="dd">
+      <p>Converts non-Compose async sources into <code>State</code>, with a coroutine scoped to the composition.</p></div></div>
+
+    <div class="def"><div class="dt">Stability</div><div class="dd">
+      <p>A type is stable if <code>equals</code> is consistent, public properties do not change without notifying, and all its properties are stable. Unstable parameters make a composable non-skippable, so it recomposes even when nothing changed.</p></div></div>
+
+    <div class="def"><div class="dt">Skippable / restartable</div><div class="dd">
+      <p><em>Restartable</em> — can be recomposed on its own. <em>Skippable</em> — can be skipped when all parameters compare equal. Strong skipping mode relaxes this by comparing unstable parameters by instance.</p></div></div>
+
+    <div class="def"><div class="dt"><code>CompositionLocal</code></div><div class="dd">
+      <p>Implicit data passed down the tree. Right for genuinely ambient values — theme, density; wrong for domain data, because it makes a composable's dependencies invisible at the call site.</p></div></div>
+
+    <div class="def"><div class="dt">Modifier order</div><div class="dd">
+      <p>Modifiers apply left to right, so <code>padding().background()</code> and <code>background().padding()</code> render differently. Always accept a <code>modifier</code> parameter, defaulted, applied to the outermost element.</p></div></div>
+
+    <div class="def"><div class="dt"><code>key</code> in lazy lists</div><div class="dd">
+      <p>Ties remembered state to identity rather than index. Without it, inserting at the head shifts every item's state and defeats reuse.</p></div></div>
+
+    <div class="def"><div class="dt"><code>SubcomposeLayout</code></div><div class="dd">
+      <p>Composes children during layout, so a child's content can depend on measurements. Powerful and expensive — it is why <code>BoxWithConstraints</code> should not be a default.</p></div></div>
+
+    <div class="def"><div class="dt">Semantics</div><div class="dd">
+      <p>The parallel tree describing meaning rather than pixels. It serves accessibility services and UI tests from one source, which is why an untestable screen is usually an inaccessible one.</p></div></div>
+
+  </div>
+
+  <h2><span class="cn">Chapter 221</span>Platform, lifecycle and process</h2>
+  <div class="deflist">
+
+    <div class="def"><div class="dt">Process death</div><div class="dd">
+      <p>The system reclaims a backgrounded app's process. The task record survives, so the user returns to what looks like their screen with every in-memory value gone. Reproduce with <code>adb shell am kill</code> — rotation does not test this.</p></div></div>
+
+    <div class="def"><div class="dt">Configuration change</div><div class="dd">
+      <p>Rotation, locale, dark mode, window resize. Recreates the Activity but not the process, which is why a <code>ViewModel</code> survives it and a saved-state bundle survives more.</p></div></div>
+
+    <div class="def"><div class="dt"><code>SavedStateHandle</code></div><div class="dd">
+      <p>The <code>ViewModel</code>'s bundle-backed store: survives process death, is size-limited, and is the correct home for navigation arguments and small user input — not for cached lists.</p></div></div>
+
+    <div class="def"><div class="dt"><code>viewLifecycleOwner</code></div><div class="dd">
+      <p>A Fragment has two lifetimes — the fragment and its view — separated by a back-stack traversal. Anything touching the view must use the view's owner or it leaks into a destroyed hierarchy.</p></div></div>
+
+    <div class="def"><div class="dt"><code>repeatOnLifecycle</code></div><div class="dd">
+      <p>Runs a block when the lifecycle reaches a state and <em>cancels</em> it when it drops below — restarting on return. Unlike <code>flowWithLifecycle</code> on a hot flow, it stops the upstream too.</p></div></div>
+
+    <div class="def"><div class="dt">Binder</div><div class="dd">
+      <p>Android's IPC mechanism, backed by a fixed ~1 MB per-process transaction buffer shared by all in-flight calls. Exceeding it throws <code>TransactionTooLargeException</code> — the usual cause of a crash when saving a large bundle.</p></div></div>
+
+    <div class="def"><div class="dt">Looper, Handler, MessageQueue</div><div class="dd">
+      <p>The main thread is a loop draining a message queue. Every frame, touch and lifecycle callback is a message — which is why a blocking call on it stalls all of them at once.</p></div></div>
+
+    <div class="def"><div class="dt">Choreographer</div><div class="dd">
+      <p>Schedules input, animation and draw against the display's vsync. Missing the frame budget — 16.6 ms at 60 Hz, 8.3 ms at 120 Hz — is jank by definition.</p></div></div>
+
+    <div class="def"><div class="dt">ANR</div><div class="dd">
+      <p>Input unhandled for 5 s, a broadcast for 10–20 s, or a service start for 20 s. Usually main-thread I/O, a lock held by a blocked thread, or a synchronous Binder call to a busy process.</p></div></div>
+
+    <div class="def"><div class="dt">Launch modes</div><div class="dd">
+      <p><code>standard</code>, <code>singleTop</code>, <code>singleTask</code>, <code>singleInstance</code> — plus intent flags that can override them. They decide task and back-stack behaviour, and are the usual cause of "back goes somewhere strange".</p></div></div>
+
+    <div class="def"><div class="dt"><code>PendingIntent</code></div><div class="dd">
+      <p>A token letting another process execute an intent with your identity. Must be <code>FLAG_IMMUTABLE</code> unless mutation is genuinely required; a mutable one wrapping an implicit intent is an intent-redirection vulnerability.</p></div></div>
+
+    <div class="def"><div class="dt">Doze and App Standby</div><div class="dd">
+      <p>Battery restrictions that batch or defer background work and network access when the device or app is idle. The reason "it works on my device" and "it works for a user overnight" are different claims.</p></div></div>
+
+    <div class="def"><div class="dt">Foreground service</div><div class="dd">
+      <p>For work the user is actively aware of, with a mandatory notification and a declared type. Since Android 12 it cannot generally be started from the background — WorkManager's expedited work is the supported path.</p></div></div>
+
+    <div class="def"><div class="dt">Runtime permissions</div><div class="dd">
+      <p>Revocable at any time, including while your app is backgrounded. Every permission-gated call therefore needs a not-granted-right-now branch, not just a request flow.</p></div></div>
+
+    <div class="def"><div class="dt">Scoped storage</div><div class="dd">
+      <p>Apps get their own directory and access others' media through MediaStore or the picker. The Photo Picker requires no permission at all, which makes a storage-permission request a design smell.</p></div></div>
+
+  </div>
+
+  <h2><span class="cn">Chapter 222</span>Jetpack, architecture and data</h2>
+  <div class="deflist">
+
+    <div class="def"><div class="dt"><code>ViewModel</code></div><div class="dd">
+      <p>A state holder scoped to a <code>ViewModelStoreOwner</code>, surviving configuration change but not process death. It must never hold a reference to a View, Activity or Context that is not the application.</p></div></div>
+
+    <div class="def"><div class="dt">UDF — unidirectional data flow</div><div class="dd">
+      <p>State flows down, events flow up. One writer per piece of state, which is what makes a bug traceable to a single place.</p></div></div>
+
+    <div class="def"><div class="dt">MVVM vs MVI</div><div class="dd">
+      <p>Both are UDF. MVI adds an explicit intent type and a single reducer, buying traceability and replay at the cost of ceremony. The honest answer is that most "MVVM" with one immutable state object already is MVI.</p></div></div>
+
+    <div class="def"><div class="dt">Repository</div><div class="dd">
+      <p>Owns where data comes from and which source is authoritative. It should not know about screens, and it should return domain models rather than DTOs or Room entities.</p></div></div>
+
+    <div class="def"><div class="dt">Single source of truth</div><div class="dd">
+      <p>One place the UI reads; everything else writes into it. The property that makes offline behaviour fall out of the architecture rather than being coded as a special case.</p></div></div>
+
+    <div class="def"><div class="dt">Room</div><div class="dd">
+      <p>A compile-time-verified SQLite layer. Observable queries invalidate per <em>table</em>, not per row — so an unbounded query over a hot table re-runs on every write.</p></div></div>
+
+    <div class="def"><div class="dt">Room migration</div><div class="dd">
+      <p>Every shipped schema version is permanent public API because users skip releases. Export the schema, commit it, test adjacent pairs; <code>fallbackToDestructiveMigration</code> is a scheduled data-loss incident.</p></div></div>
+
+    <div class="def"><div class="dt"><code>DataStore</code></div><div class="dd">
+      <p>The asynchronous, transactional replacement for <code>SharedPreferences</code>, exposing a <code>Flow</code>. Preferences DataStore is untyped; Proto DataStore is schema-backed.</p></div></div>
+
+    <div class="def"><div class="dt">WorkManager</div><div class="dd">
+      <p>The only Android mechanism guaranteeing deferrable work runs eventually, across process death and reboot. For "must happen eventually", never "must happen now and visibly".</p></div></div>
+
+    <div class="def"><div class="dt">Unique work</div><div class="dd">
+      <p><code>enqueueUnique*</code> with <code>KEEP</code>, <code>REPLACE</code> or <code>APPEND</code> makes scheduling idempotent. Without it, every app launch enqueues another copy and they multiply.</p></div></div>
+
+    <div class="def"><div class="dt">Paging 3</div><div class="dd">
+      <p><code>PagingSource</code> supplies pages; <code>RemoteMediator</code> writes network pages into the database when the cache runs low; <code>cachedIn</code> keeps the stream alive across configuration change.</p></div></div>
+
+    <div class="def"><div class="dt">Hilt</div><div class="dd">
+      <p>Dagger with Android's component hierarchy predefined. Its real payoff is that clock, dispatcher, network and database arrive through constructors, so the slice runs as a JVM test.</p></div></div>
+
+    <div class="def"><div class="dt"><code>@Binds</code> vs <code>@Provides</code></div><div class="dd">
+      <p><code>@Binds</code> for "this implementation satisfies that interface" — abstract, no generated factory. <code>@Provides</code> when construction requires code.</p></div></div>
+
+    <div class="def"><div class="dt">Idempotency key</div><div class="dd">
+      <p>A client-generated id, created at user commit and persisted before the request, that lets a server deduplicate retries. Without it, a retry after a post-send timeout charges twice.</p></div></div>
+
+    <div class="def"><div class="dt">Outbox pattern</div><div class="dd">
+      <p>Persist the user's intent in the same transaction as the optimistic UI change, then let a worker drain it. The mechanism behind offline writes surviving process death.</p></div></div>
+
+    <div class="def"><div class="dt">Optimistic update</div><div class="dd">
+      <p>Show the result before the server confirms. Correct only when you can both persist the intent and reverse it coherently on rejection.</p></div></div>
+
+  </div>
+
+  <h2><span class="cn">Chapter 223</span>Testing, build and performance</h2>
+  <div class="deflist">
+
+    <div class="def"><div class="dt">Fake vs mock vs stub</div><div class="dd">
+      <p>A <em>fake</em> is a working lightweight implementation; a <em>stub</em> returns canned values; a <em>mock</em> asserts on interactions. Prefer fakes: mocks encode implementation detail and break on every refactor.</p></div></div>
+
+    <div class="def"><div class="dt"><code>runTest</code></div><div class="dd">
+      <p>Runs a coroutine test with virtual time, so <code>delay(10_000)</code> completes instantly and deterministically.</p></div></div>
+
+    <div class="def"><div class="dt"><code>StandardTestDispatcher</code> vs <code>Unconfined</code></div><div class="dd">
+      <p><code>Standard</code> queues coroutines until you advance time, exposing ordering bugs. <code>Unconfined</code> runs eagerly, which is convenient and hides them.</p></div></div>
+
+    <div class="def"><div class="dt">Test pyramid, mobile shape</div><div class="dd">
+      <p>Many JVM unit tests, fewer Robolectric or component tests, few instrumented end-to-end tests. Driven by cost and flake rate, not ideology.</p></div></div>
+
+    <div class="def"><div class="dt">Flake budget</div><div class="dd">
+      <p>The declared rate above which a test is quarantined rather than retried. A suite without one degrades into a suite nobody trusts.</p></div></div>
+
+    <div class="def"><div class="dt">Baseline Profile</div><div class="dd">
+      <p>A shipped list of hot methods AOT-compiled at install, typically cutting cold start and first-scroll jank by double-digit percentages. The cheapest large startup win available.</p></div></div>
+
+    <div class="def"><div class="dt">R8</div><div class="dd">
+      <p>Shrinking, optimisation and obfuscation in one step. Reflection and serialisation need keep rules, and a missing one fails only in release.</p></div></div>
+
+    <div class="def"><div class="dt">Configuration cache</div><div class="dd">
+      <p>Gradle caches the configured task graph, so subsequent builds skip configuration entirely. Requires tasks not to reference <code>Project</code> at execution time.</p></div></div>
+
+    <div class="def"><div class="dt">Cold, warm, hot start</div><div class="dd">
+      <p>Cold — new process. Warm — process alive, Activity recreated. Hot — Activity resumed. Measure with <code>Time to Initial Display</code> and <code>Time to Full Display</code>, and report percentiles rather than means.</p></div></div>
+
+    <div class="def"><div class="dt">Jank</div><div class="dd">
+      <p>A frame that misses its deadline. Diagnose with a system trace rather than recomposition counts: the usual causes are main-thread work, unbounded queries and unscaled bitmap decodes.</p></div></div>
+
+    <div class="def"><div class="dt">Memory leak topology</div><div class="dd">
+      <p>Almost all Android leaks are one shape: a long-lived object holding a short-lived one — a static holding a Context, a listener never unregistered, or an inner class capturing its outer.</p></div></div>
+
+    <div class="def"><div class="dt">Strict mode</div><div class="dd">
+      <p>Development-time detection of main-thread disk and network access and of leaked closables. Enable in debug builds and fix what it finds rather than suppressing it.</p></div></div>
+
+  </div>
+
+  <h2><span class="cn">Chapter 224</span>The sixty-second self-test</h2>
+  <p>If you cannot answer these out loud without hesitating, that topic is your next study block. Each maps to a definition above.</p>
+  <div class="tw"><table class="t2">
+    <thead><tr><th style="min-width:300px">Prompt</th><th>The one-line answer</th></tr></thead>
+    <tbody>
+      <tr><td>What makes a coroutine cheaper than a thread?</td><td>It is an object, not a stack — suspension stores a continuation and releases the thread.</td></tr>
+      <tr><td>What does structured concurrency guarantee?</td><td>No coroutine outlives its scope; failure and cancellation propagate along the parent–child tree.</td></tr>
+      <tr><td>Supervised versus unsupervised, in one sentence?</td><td>Supervision stops a child's <em>failure</em> from reaching siblings; downward cancellation is unchanged.</td></tr>
+      <tr><td>Why can a coroutine ignore cancellation?</td><td>Cancellation is cooperative — code that never suspends and never checks <code>isActive</code> keeps running.</td></tr>
+      <tr><td>Why is catching <code>Exception</code> in a coroutine dangerous?</td><td>It swallows <code>CancellationException</code> and breaks structured concurrency.</td></tr>
+      <tr><td>When does a cold flow become expensive?</td><td>With several collectors — each gets its own execution, so five collectors means five network calls.</td></tr>
+      <tr><td>Why <code>WhileSubscribed(5_000)</code>?</td><td>Longer than a configuration change, shorter than the user's attention.</td></tr>
+      <tr><td>State, or event?</td><td>True after rotation → state. Must happen exactly once → event on a channel.</td></tr>
+      <tr><td>Why does <code>_state.value = _state.value.copy()</code> lose updates?</td><td>It is a read-modify-write; <code>update {}</code> retries on conflict.</td></tr>
+      <tr><td>What survives process death?</td><td>Disk, and <code>SavedStateHandle</code>. Not a <code>ViewModel</code>, not a singleton's fields.</td></tr>
+      <tr><td>Which lifecycle owner for a Fragment's view?</td><td><code>viewLifecycleOwner</code> — the fragment outlives its view by a back-stack traversal.</td></tr>
+      <tr><td>Why does an unkeyed <code>LazyColumn</code> misbehave?</td><td>Remembered state is bound to index, so a head insert shifts every item's state.</td></tr>
+      <tr><td>What makes a composable skippable?</td><td>All parameters stable and comparing equal.</td></tr>
+      <tr><td>When is <code>derivedStateOf</code> the right tool?</td><td>When the derived value changes far less often than the state it is derived from.</td></tr>
+      <tr><td>Why persist an opaque pagination cursor?</td><td>It cannot be recomputed from the data, so paging cannot resume after process death without it.</td></tr>
+      <tr><td>Where must an idempotency key be generated?</td><td>At user commit, persisted before the request, reused on every retry.</td></tr>
+      <tr><td>Which errors are safe to retry?</td><td>Connection failures freely; post-send timeouts only behind an idempotency key; never a 4xx.</td></tr>
+      <tr><td>Why not last-write-wins on device time?</td><td>Device clocks are user-settable, so it is data loss wearing a strategy's name.</td></tr>
+      <tr><td>What does Room invalidate on a write?</td><td>Every observing query on that <em>table</em> — hence bounded, indexed queries.</td></tr>
+      <tr><td>Why <code>FLAG_IMMUTABLE</code>?</td><td>A mutable PendingIntent wrapping an implicit intent lets another app act as you.</td></tr>
+      <tr><td>What does a foreground service require since Android 12?</td><td>A declared type, a notification, and a foreground start — background starts are blocked.</td></tr>
+      <tr><td>Cheapest large startup win?</td><td>A Baseline Profile.</td></tr>
+      <tr><td>Why prefer fakes over mocks?</td><td>Mocks assert on interactions, so they break on refactors that change nothing observable.</td></tr>
+      <tr><td>What does <code>flowOn</code> affect?</td><td>Everything upstream of it, and nothing downstream.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="panel">
+    <h4>Part XXXIV rapid recall</h4>
+    <ul>
+      <li>A coroutine is an object, not a thread; a scope is a lifetime, not a pool.</li>
+      <li>Structured concurrency: no work outlives its scope, and errors travel the job tree.</li>
+      <li>Supervision changes upward failure propagation only — cancellation still flows down.</li>
+      <li>Cancellation is cooperative; never swallow <code>CancellationException</code>.</li>
+      <li>Cold flows run per collector; hot flows exist without one.</li>
+      <li><code>StateFlow</code> state, <code>SharedFlow</code> multicast signal, <code>Channel</code> one-shot event.</li>
+      <li><code>flowOn</code> is upstream-only; <code>withContext</code> belongs to the function that blocks.</li>
+      <li>Recomposition is optimistic, reorderable and cancellable — so composables must be pure.</li>
+      <li><code>remember</code> survives recomposition; <code>rememberSaveable</code> survives process death.</li>
+      <li>Only disk and <code>SavedStateHandle</code> survive a process kill.</li>
+      <li>Room invalidates per table; keep observed queries bounded and indexed.</li>
+      <li>Persist the cursor, generate the idempotency key at commit, classify errors three ways.</li>
+    </ul>
+  </div>
+
+  <div class="pagenav"><a href="#p33" data-p="p33"><span class="k">Previous</span><span class="t">← Part XXXIII</span></a><a class="r" href="#p35" data-p="p35"><span class="k">Next</span><span class="t">Part XXXV — Best Practices →</span></a></div>
+</section>

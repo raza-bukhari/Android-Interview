@@ -187,6 +187,14 @@
   .c1{background:var(--l1)} .c2{background:var(--l2)} .c3{background:var(--l3)} .c4{background:var(--l4)} .c5{background:var(--l5);color:#fff}
   @media (prefers-color-scheme: dark){ .c5{color:#1A0F17} } :root[data-theme="dark"] .c5{color:#1A0F17}
 
+  /* difficulty badges — outlined so they never read as a grading chip */
+  .diff { display:inline-block; font-family:var(--mono); font-size:9.5px; font-weight:600; letter-spacing:.09em;
+          text-transform:uppercase; padding:1px 7px; border-radius:3px; border:1px solid; white-space:nowrap; vertical-align:1px; }
+  .d1 { color:var(--good); border-color:var(--good); background:var(--good-soft); }
+  .d2 { color:var(--blue); border-color:var(--blue); background:var(--blue-soft); }
+  .d3 { color:var(--brass); border-color:var(--brass); background:var(--brass-soft); }
+  .d4 { color:var(--bad); border-color:var(--bad); background:var(--bad-soft); }
+
   .legend { display:flex; flex-wrap:wrap; gap:6px 16px; padding:11px 14px; margin:0 0 26px;
             border:1px solid var(--rule); border-radius:4px; background:var(--paper-2); font-size:12px; }
   .legend span { color:var(--text-2); white-space:nowrap; }
@@ -293,6 +301,36 @@
   .chk li { padding-left:24px; position:relative; margin-bottom:7px; }
   .chk li::before { content:"□"; position:absolute; left:2px; color:var(--brass); font-size:15px; }
 
+  /* build-task cards */
+  .taskgrid { display:grid; gap:12px; margin:20px 0 30px; }
+  .task { border:1px solid var(--rule); border-left:3px solid var(--rule); border-radius:0 4px 4px 0;
+          background:var(--paper-2); padding:15px 19px; }
+  .task.t1 { border-left-color:var(--good); } .task.t2 { border-left-color:var(--blue); }
+  .task.t3 { border-left-color:var(--brass); } .task.t4 { border-left-color:var(--bad); }
+  .task .th { display:flex; flex-wrap:wrap; gap:9px; align-items:baseline; margin-bottom:7px; }
+  .task .tn { font-family:var(--serif); font-size:16.5px; font-weight:600; color:var(--text); line-height:1.3; }
+  .task .tm { font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+              color:var(--text-3); margin-left:auto; white-space:nowrap; }
+  .task p { margin:0 0 8px; font-size:13.8px; max-width:none; }
+  .task p:last-child { margin-bottom:0; }
+  .task .sig { font-size:13px; color:var(--text-2); }
+  .task .sig b { font-family:var(--mono); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+                 color:var(--brass); font-weight:600; }
+  .task .trap b { color:var(--bad); }
+
+  /* recall glossary */
+  .deflist { margin:18px 0 30px; border-top:1px solid var(--rule); }
+  .def { display:grid; grid-template-columns:215px minmax(0,1fr); gap:22px; padding:13px 2px;
+         border-bottom:1px solid var(--rule-soft); }
+  .def > .dt { font-size:14px; font-weight:650; color:var(--text); align-self:start; line-height:1.35; }
+  .def > .dt code { font-size:.92em; background:transparent; padding:0; }
+  .def .dd { font-size:13.5px; color:var(--text-2); min-width:0; }
+  .def .dd p { margin:0 0 7px; max-width:none; font-size:inherit; }
+  .def .dd p:last-child { margin-bottom:0; }
+  .def .dd pre { margin-top:8px; border:1px solid var(--rule-soft); border-radius:3px;
+                 padding:9px 12px; font-size:11.9px; background:var(--paper); }
+  @media (max-width:700px) { .def { grid-template-columns:1fr; gap:5px; } }
+
   @media (max-width:1279px) {
     .shell { grid-template-columns:255px minmax(0,1fr); }
   }
@@ -324,7 +362,7 @@
     main { padding:0; }
     .js .page:not(.on) { display:none !important; }
     body { background:#fff; color:#000; font-size:10.5pt; }
-    .q, .cmp, .panel, .note, .code1, .cbox, table { break-inside:avoid; }
+    .q, .cmp, .panel, .note, .code1, .cbox, table, .task, .def { break-inside:avoid; }
     h2, h3 { break-after:avoid; }
     pre { white-space:pre-wrap; word-break:break-word; }
     .tw { overflow:visible; }
@@ -380,6 +418,10 @@
       <a href="#p29" data-p="p29"><span class="num">XXIX</span><span>Follow-Up Trees</span><span class="seen">✓</span></a>
       <a href="#p30" data-p="p30"><span class="num">XXX</span><span>Cheat Sheets</span><span class="seen">✓</span></a>
       <a href="#p31" data-p="p31"><span class="num">XXXI</span><span>Best Practices</span><span class="seen">✓</span></a>
+      <a href="#p32" data-p="p32"><span class="num">XXXII</span><span>End-to-End Build</span><span class="seen">✓</span></a>
+      <a href="#p33" data-p="p33"><span class="num">XXXIII</span><span>Greenfield Tasks</span><span class="seen">✓</span></a>
+      <a href="#p34" data-p="p34"><span class="num">XXXIV</span><span>Rapid Recall</span><span class="seen">✓</span></a>
+      <a href="#p35" data-p="p35"><span class="num">XXXV</span><span>Practices by Area</span><span class="seen">✓</span></a>
     </nav>
   </details>
 </aside>
