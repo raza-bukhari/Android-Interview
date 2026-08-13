@@ -6,6 +6,8 @@ level Android engineers — 30 parts, 179 chapters, 18 mobile system designs, ~4
 
 It is a single self-contained static page: no build tooling, no dependencies, no tracking.
 
+**[Live Site](https://android-interview.vercel.app)** | **[GitHub Repository](https://github.com/raza-bukhari/Android-Interview)**
+
 ## Repository layout
 
 ```
@@ -44,18 +46,26 @@ powershell -File serve.ps1
 
 Then open <http://localhost:8099/public/index.html>.
 
-## Deploying to Vercel
+## Deployment
 
-The project is static with no build step Vercel needs to run.
+The site is deployed to Vercel and live at **[android-interview.vercel.app](https://android-interview.vercel.app)**.
 
-1. Push this repository to GitHub.
-2. In Vercel, **Add New → Project** and import the repository.
-3. Framework preset: **Other**. Build command: leave empty. Output directory: `public`
-   (already set in `vercel.json`, so the defaults should be correct).
-4. Deploy.
+### Automatic re-deploys
 
-Re-deploys happen automatically on push. Because `public/index.html` is generated,
-**run the build and commit the output before pushing** — Vercel does not run PowerShell.
+Re-deploys happen automatically on every push to the main branch.
+
+### Before pushing changes
+
+Because `public/index.html` is generated from `src/`, **always run the build and commit the output before pushing**:
+
+```bash
+powershell -File build.ps1
+git add public/ index.html
+git commit -m "Rebuild site"
+git push
+```
+
+Vercel does not run PowerShell, so it cannot build the site itself.
 
 ## Design notes
 
